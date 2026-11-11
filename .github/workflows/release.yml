@@ -3,6 +3,14 @@ name: PlotForge release
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing tag for the draft release
+        required: true
+      build_run_id:
+        description: Previous release run with three successful installer jobs
+        required: true
 
 permissions:
   contents: read
@@ -13,7 +21,7 @@ concurrency:
 
 jobs:
   validate:
-    if: github.repository == 'wdk08/PlotForge'
+    if: github.repository == 'wdk08/PlotForge' && github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -113,21 +121,47 @@ jobs:
 
   publish:
     needs: [draft, installers]
+    if: >-
+      ${{ !cancelled() && github.repository == 'wdk08/PlotForge' &&
+      ((github.event_name == 'push' && needs.draft.result == 'success' && needs.installers.result == 'success') ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')) }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: read
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
       RELEASE_ID: ${{ needs.draft.outputs.id }}
-      RELEASE_TAG: ${{ github.ref_name }}
+      RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
+      BUILD_RUN_ID: ${{ inputs.build_run_id }}
     steps:
       - uses: actions/checkout@v4
         with:
+          fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Verify the previous build and reuse its draft
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ && "$BUILD_RUN_ID" =~ ^[0-9]+$ ]]
+          tag_commit=$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")
+          git merge-base --is-ancestor "$tag_commit" "$GITHUB_SHA"
+          workflow_id=$(gh api "repos/$GH_REPO/actions/workflows/release.yml" --jq .id)
+          gh api "repos/$GH_REPO/actions/runs/$BUILD_RUN_ID" | jq -e \
+            --arg tag "$RELEASE_TAG" --arg sha "$tag_commit" --argjson workflow "$workflow_id" \
+            '.event == "push" and .status == "completed" and .workflow_id == $workflow and .head_branch == $tag and .head_sha == $sha'
+          gh api "repos/$GH_REPO/actions/runs/$BUILD_RUN_ID/jobs?per_page=100" | jq -e '
+            ([.jobs[] | select(.name | startswith("installers (")) | select(.conclusion == "success") | .name] | sort) == ([
+              "installers (macos-15, aarch64-apple-darwin, app,dmg)",
+              "installers (macos-15-intel, x86_64-apple-darwin, app,dmg)",
+              "installers (windows-latest, x86_64-pc-windows-msvc, nsis)"
+            ] | sort)'
+          id=$(gh release view "$RELEASE_TAG" --json databaseId,isDraft --jq 'select(.isDraft) | .databaseId')
+          test -n "$id"
+          echo "RELEASE_ID=$id" >> "$GITHUB_ENV"
       - name: Validate the draft's complete set of installer and updater assets
         run: |
           gh api "repos/$GH_REPO/releases/$RELEASE_ID" > release-assets.json

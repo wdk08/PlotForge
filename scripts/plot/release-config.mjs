@@ -38,7 +38,17 @@ if (process.argv.includes('--assets')) {
   const release = json('release-assets.json');
   assert.equal(release.tag_name, tag);
   assert.equal(release.draft, true);
-  const installers = releaseInstallers({ ...release, draft: false });
+  const downloadRoot = `https://github.com/${repository}/releases/download`;
+  const publicURL = name => `${downloadRoot}/${tag}/${encodeURIComponent(name)}`;
+  const assets = release.assets.map(asset => {
+    const href = publicURL(asset.name);
+    const draftTag = new URL(asset.browser_download_url).pathname.split('/').at(-2);
+    const isDraftURL = /^untagged-[a-f0-9]+$/.test(draftTag) &&
+      asset.browser_download_url === `${downloadRoot}/${draftTag}/${encodeURIComponent(asset.name)}`;
+    assert.ok(asset.browser_download_url === href || isDraftURL, `Unexpected draft download URL for ${asset.name}`);
+    return { ...asset, browser_download_url: href };
+  });
+  const installers = releaseInstallers({ ...release, draft: false, assets });
   assert.equal(installers.length, 3, 'Expected installers for both macOS architectures and Windows x64.');
   const latest = json('release-review/latest.json');
   assert.equal(latest.version.replace(/^v/, ''), version);
@@ -59,8 +69,7 @@ if (process.argv.includes('--assets')) {
     const file = asset.name;
     assert.match(file, pattern);
     assert.ok(file.startsWith(`PlotForge_${version}_`), file);
-    const canonical = `https://github.com/${repository}/releases/download/${tag}/${encodeURIComponent(file)}`;
-    assert.equal(asset.browser_download_url, canonical);
+    const canonical = publicURL(file);
     assert.ok(!files.has(file), `Shared updater payload across architectures: ${file}`);
     files.add(file);
     for (const name of [file, `${file}.sig`]) {
