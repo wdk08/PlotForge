@@ -1,0 +1,211 @@
+:root, :root[data-theme="dark"] {
+  --plot-accent: #b58a35;
+  --plot-accent-ink: #765213;
+  --plot-accent-soft: #f2e7cd;
+  --plot-accent-hover: #a77c2b;
+  --plot-surface: #fcfaf6;
+  --plot-panel: #f5f2eb;
+  --plot-canvas: #ece8df;
+  --plot-line: #dcd3c4;
+  --plot-ink: #352e25;
+  --plot-muted: #6d6252;
+  --plot-dot: #b7a993;
+  --plot-note: #fcf1d6;
+  --plot-card: #fffdf7;
+  --plot-shadow: #4e402225;
+  --sf-642626: var(--plot-accent-hover);
+  --sf-763232: var(--plot-accent-ink);
+  --sf-8c3939: var(--plot-accent-ink);
+  --sf-6b352f: var(--plot-accent-ink);
+  --sf-854535: var(--plot-accent-ink);
+  --sf-864235: var(--plot-accent-ink);
+  --sf-8b352d: var(--plot-accent-ink);
+  --sf-8d5840: var(--plot-accent-ink);
+  --sf-924a35: var(--plot-accent-ink);
+  --sf-e9dcd7: var(--plot-accent-soft);
+  accent-color: var(--plot-accent);
+}
+:root[data-theme="dark"] {
+  --plot-accent-ink: #edc777;
+  --plot-accent-soft: #45371f;
+  --plot-surface: #28251f;
+  --plot-panel: #25221d;
+  --plot-canvas: #201e1a;
+  --plot-line: #494236;
+  --plot-ink: #eee6d7;
+  --plot-muted: #bcaf99;
+  --plot-dot: #625845;
+  --plot-note: #3f3421;
+  --plot-card: #302b23;
+  --plot-shadow: #0006;
+}
+[hidden] { display: none !important; }
+.primary-button, .primary-button:hover:not(:disabled) { color: #241906; background: var(--plot-accent); }
+.primary-button:hover:not(:disabled) { background: var(--plot-accent-hover); }
+#new-project { color: var(--theme-on-accent); }
+.plot-library .script-preview { display: block; }
+.board-thumbnail { position: absolute; inset: 16px 25px; background-image: radial-gradient(var(--plot-dot) .65px, transparent .8px); background-size: 12px 12px; overflow: hidden; border-radius: 4px; }
+.thumb-element { position: absolute; background: var(--plot-card); border: 1px solid var(--plot-line); border-radius: 3px; box-shadow: 0 2px 3px var(--plot-shadow); }
+.thumb-note, .thumb-canvas { background: var(--plot-note); }
+.thumb-shape { background: var(--plot-accent); }
+.thumb-image, .thumb-video, .thumb-audio { background: var(--plot-accent-soft); }
+.library-sort select, .plot-field input, .plot-field select, .settings-section select {
+  color: var(--plot-ink); background: var(--plot-surface); border: 1px solid var(--plot-line); border-radius: 5px; padding: 6px 8px;
+}
+.library-sort select { font-size: 11px; }
+.settings-section { margin-top: 24px; padding-top: 8px; border-top: 1px solid var(--plot-line); }
+.settings-section h2 { font-size: 14px; }
+.settings-section fieldset { padding: 0; border: 0; font-size: 13px; }
+.appearance-options { display: flex; flex-wrap: wrap; gap: 14px; font-size: 13px; }
+#prompt-dialog .plot-field { margin: 18px 0; }
+.plot-field { display: flex; align-items: center; justify-content: space-between; gap: 9px; font-size: 12px; }
+.plot-field input:not([type="color"], [type="checkbox"]), .plot-field select { width: min(64%, 180px); min-width: 0; }
+.plot-field input[type="color"] { width: 34px; height: 26px; padding: 2px; }
+.plot-field input[type="checkbox"] { margin-right: 4px; }
+.plot-editor { height: 100vh; height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
+.plot-editor.loading .editing-bar, .plot-editor.loading .format-toolbar, .plot-editor.loading .plot-workspace, .plot-editor.loading .header-actions { pointer-events: none; opacity: .45; }
+.plot-editor .app-header { flex: none; height: 76px; }
+.plot-editor .save-state { top: 43px; white-space: nowrap; }
+.plot-editor .document-heading { padding-bottom: 11px; }
+.plot-editor .home-button { display: inline-flex; align-items: center; color: inherit; text-decoration: none; flex: none; }
+.plot-editor #library { border-radius: 8px; }
+.plot-editor #library:hover { outline: 2px solid var(--plot-accent); outline-offset: 3px; }
+.plot-editor .editing-bar, .plot-editor .format-toolbar { flex: none; }
+.plot-editor .format-toolbar b { margin-right: 3px; font-size: 14px; color: var(--plot-accent-ink); }
+.plot-editor .status-bar { position: static; flex: 0 0 30px; }
+.plot-editor .file-menu-items button:disabled { cursor: default; }
+.plot-editor .document-banner { justify-content: space-between; }
+.plot-editor .document-banner button { white-space: nowrap; }
+.canvas-navigation { min-height: 39px; padding: 4px 22px; display: flex; align-items: center; gap: 8px; background: var(--plot-surface); border-bottom: 1px solid var(--plot-line); }
+.canvas-navigation ol { margin: 0; padding: 0; display: flex; align-items: center; list-style: none; overflow-x: auto; white-space: nowrap; scrollbar-width: thin; }
+.canvas-navigation li { display: inline-flex; align-items: center; font-size: 12px; }
+.canvas-navigation li + li::before { content: '›'; color: var(--plot-muted); padding: 0 6px; }
+.canvas-navigation button { padding: 5px 8px; }
+.canvas-navigation [aria-current] { padding: 5px 8px; font-weight: 650; color: var(--plot-accent-ink); }
+#back { color: var(--plot-accent-ink); flex-shrink: 0; background: var(--plot-accent-soft); font-size: 11px; }
+.plot-workspace { flex: 1; min-height: 0; display: flex; position: relative; }
+.plot-sidebar { flex: 0 0 206px; min-width: 0; background: var(--plot-panel); border-right: 1px solid var(--plot-line); overflow: auto; padding: 15px 11px; color: var(--plot-ink); }
+.panel-heading { padding: 5px 6px 16px; display: flex; justify-content: space-between; font-size: 10px; font-weight: 650; letter-spacing: 1.3px; color: var(--plot-muted); }
+.outline-instruction { margin: 15px 6px 0; color: var(--plot-muted); font-size: 11px; line-height: 1.6; }
+.board-row { display: flex; align-items: center; gap: 3px; padding-left: calc(var(--depth) * 13px); }
+.board-row button { padding: 6px 3px; font-size: 12px; text-align: left; }
+.board-row .tree-disclosure { width: 19px; flex: none; text-align: center; color: var(--plot-muted); }
+.tree-title { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tree-title[aria-current] { background: var(--plot-accent-soft); color: var(--plot-accent-ink); font-weight: 650; }
+.inspector { flex-basis: 254px; border-right: 0; border-left: 1px solid var(--plot-line); }
+#inspector-body { display: flex; flex-direction: column; gap: 11px; padding: 0 5px 15px; }
+#inspector-body h2 { font: 20px Georgia, serif; margin: 1px 0 4px; overflow-wrap: anywhere; }
+#inspector-body p { margin: 0; color: var(--plot-muted); font-size: 12px; line-height: 1.55; }
+.inspector-actions { display: flex; flex-wrap: wrap; gap: 5px; }
+.inspector-actions button, .rich-tools button { padding: 5px 7px; border: 1px solid var(--plot-line); font-size: 12px; }
+.rich-tools { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.rich-tools select { max-width: 94px; color: var(--plot-ink); background: var(--plot-surface); border: 1px solid var(--plot-line); border-radius: 4px; }
+.list-editor { display: flex; flex-direction: column; gap: 7px; }
+.list-edit-row { display: flex; align-items: center; gap: 3px; }
+.list-edit-row input { flex: 1; width: 0; padding: 6px; border: 1px solid var(--plot-line); border-radius: 4px; background: var(--plot-surface); color: var(--plot-ink); font-size: 12px; }
+.list-edit-row button { padding: 3px 4px; }
+#plot-canvas { position: relative; isolation: isolate; flex: 1; min-width: 0; overflow: hidden; background-color: var(--plot-canvas); outline: none; touch-action: none; overscroll-behavior: contain; cursor: default; user-select: none; }
+#plot-canvas.grid-on { background-image: radial-gradient(var(--plot-dot) .8px, transparent 1px); }
+#plot-canvas.panning, #plot-canvas.space-held { cursor: grabbing; }
+#plot-canvas.space-held .plot-element { cursor: grab; }
+#plot-canvas.connecting, #plot-canvas.connecting .plot-element { cursor: crosshair; }
+#plot-canvas.file-over { box-shadow: inset 0 0 0 3px var(--plot-accent); }
+#plot-stage, #plot-links { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+#plot-stage { transform-origin: 0 0; width: 0; height: 0; }
+#plot-links { overflow: hidden; }
+.connection-hit { pointer-events: stroke; cursor: pointer; }
+.selected-link .connection-visible { filter: drop-shadow(0 0 2px var(--plot-accent-ink)); }
+.align-guide { stroke: var(--plot-accent); stroke-width: 1; stroke-dasharray: 4 4; }
+.selection-box { stroke: var(--plot-accent); stroke-width: 1; fill: #b58a3533; }
+#canvas-hint { position: absolute; left: 50%; top: 44%; transform: translate(-50%, -50%); pointer-events: none; text-align: center; width: 86%; margin: 0; color: var(--plot-muted); font-size: 12px; }
+#zoom-controls { position: absolute; right: 14px; bottom: 14px; z-index: 4; display: flex; align-items: center; padding: 4px; background: var(--plot-surface); border: 1px solid var(--plot-line); border-radius: 8px; box-shadow: 0 3px 14px var(--plot-shadow); }
+#zoom-controls button { min-width: 30px; height: 29px; font-size: 14px; }
+#zoom-controls #zoom-reset { min-width: 54px; font-size: 11px; font-variant-numeric: tabular-nums; }
+#zoom-controls #fit { font-size: 11px; margin-left: 4px; border-left: 1px solid var(--plot-line); border-radius: 0 5px 5px 0; }
+.plot-element { position: absolute; isolation: isolate; display: flex; flex-direction: column; pointer-events: auto; cursor: move; padding: 13px; gap: 7px; color: var(--plot-ink); background: var(--plot-card); border: 1px solid var(--plot-line); border-radius: 8px; box-shadow: 0 3px 12px var(--plot-shadow); font-size: 14px; }
+.plot-element.selected { outline: 2px solid var(--plot-accent); }
+.plot-element.connect-from { outline: 2px dashed var(--plot-accent); }
+.plot-element.borderless { border-color: transparent; }
+.element-text { background: transparent; border-color: transparent; box-shadow: none; }
+.element-text:hover { border-color: var(--plot-line); }
+.element-note { background: var(--plot-note); }
+.element-title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: none; }
+.rich-content { min-height: 0; flex: 1; overflow: auto; overscroll-behavior: contain; line-height: 1.35; white-space: pre-wrap; overflow-wrap: anywhere; }
+.rich-content[contenteditable="true"] { outline: none; cursor: text; user-select: text; }
+.rich-content:empty::before { content: attr(data-placeholder); color: var(--plot-muted); font-size: 12px; pointer-events: none; }
+.rich-content[contenteditable="true"]:empty::before, .export-board .rich-content:empty::before { content: none; }
+.rich-content :is(h1, h2, h3, p, blockquote) { margin: 0 0 .35em; }
+.element-canvas { flex-direction: row; align-items: center; gap: 11px; border-color: var(--plot-accent); background: var(--plot-accent-soft); }
+.nested-icon { flex: none; display: grid; place-items: center; width: 36px; height: 36px; border-radius: 7px; background: var(--plot-accent); color: #281c08; font-size: 20px; }
+.nested-label { flex: 1; min-width: 0; overflow: hidden; }
+.nested-label small { display: block; margin-top: 4px; color: var(--plot-muted); }
+.nested-arrow { color: var(--plot-accent-ink); flex: none; }
+.plot-list { min-height: 0; margin: 0; padding: 0 0 0 18px; overflow: auto; overscroll-behavior: contain; }
+.plot-list li { padding: 2px 0; overflow-wrap: anywhere; }
+.plot-list.checklist { list-style: none; padding: 0; }
+.plot-list.checklist li { display: flex; align-items: flex-start; gap: 5px; }
+.plot-list .done > span:last-child { text-decoration: line-through; opacity: .65; }
+.plot-list .list-empty { list-style: none; color: var(--plot-muted); font-size: 12px; }
+.element-image, .element-video, .element-shape { padding: 0; gap: 0; }
+.element-shape { background: transparent; border: 0; border-radius: 0; box-shadow: none; }
+.media-player { width: 100%; height: 100%; min-height: 0; object-fit: contain; border-radius: inherit; }
+.element-video .media-player { background: #1a1814; }
+.element-audio .media-player { height: 40px; min-height: 32px; }
+.media-title { display: flex; gap: 7px; align-items: center; flex: none; min-width: 0; }
+.media-title strong { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 13px; }
+.media-meta, .media-error { color: var(--plot-muted); font-size: 11px; }
+.media-error { position: absolute; inset: auto 8px 7px; border-radius: 4px; padding: 4px; background: var(--plot-surface); pointer-events: none; }
+.resize-handle { position: absolute; right: -6px; bottom: -6px; width: 17px; height: 17px; padding: 0; background: var(--plot-accent); color: #241906; font-size: 11px; border-radius: 3px; cursor: nwse-resize; transform: scale(var(--handle-scale, 1)); transform-origin: 65% 65%; }
+.resize-handle:hover:not(:disabled) { background: var(--plot-accent-hover); }
+#context-menu { position: fixed; z-index: 25; min-width: 184px; max-height: calc(100vh - 20px); overflow: auto; padding: 5px; background: var(--plot-surface); border: 1px solid var(--plot-line); border-radius: 8px; box-shadow: 0 7px 24px var(--plot-shadow); }
+#context-menu button { display: block; width: 100%; text-align: left; padding: 7px 9px; font-size: 12px; }
+.version-list { display: flex; flex-direction: column; gap: 5px; max-height: 330px; overflow: auto; }
+.version-list button { text-align: left; padding: 9px; border: 1px solid var(--plot-line); font-size: 12px; }
+.export-board { position: absolute; top: 0; left: 0; color: var(--plot-ink); background: var(--plot-canvas); overflow: hidden; pointer-events: none; }
+.export-board .plot-element { box-shadow: none; }
+.export-board .rich-content { overflow: hidden; }
+.export-board .media-error, .export-board .list-empty { display: none; }
+.export-board .element-video { padding: 10px; gap: 5px; }
+.export-board .element-video img { flex: 1; }
+@media (max-width: 1100px) {
+  .plot-sidebar { flex-basis: 164px; padding-inline: 8px; }
+  .inspector { flex-basis: 210px; }
+}
+@media (max-width: 800px) {
+  .plot-sidebar { position: absolute; z-index: 6; inset: 0 auto 0 0; width: 170px; box-shadow: 0 2px 10px var(--plot-shadow); }
+  .inspector { inset: 0 0 0 auto; width: 210px; }
+  .canvas-navigation { padding-inline: 9px; }
+  .plot-editor .editing-bar { padding-inline: 9px; gap: 5px; }
+}
+.video-grip { position: absolute; top: 6px; left: 6px; right: 6px; z-index: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-radius: 4px; padding: 5px 7px; background: #221c12da; color: #fff7e8; font-size: 11px; }
+
+.format-toolbar [data-insert] { cursor: grab; touch-action: none; user-select: none; }
+.format-toolbar [data-insert]:active { cursor: grabbing; }
+.toolbar-drag-preview { position: fixed; top: 0; left: 0; z-index: 30; pointer-events: none; display: flex; align-items: center; gap: 7px; padding: 9px 13px; border: 1px dashed var(--plot-accent); border-radius: 7px; background: var(--plot-card); color: var(--plot-ink); box-shadow: 0 3px 12px var(--plot-shadow); font-size: 12px; }
+.toolbar-drag-preview b { color: var(--plot-accent-ink); font-size: 16px; }
+.toolbar-drag-preview.can-drop { border-style: solid; background: var(--plot-accent-soft); }
+#plot-canvas.toolbar-drop-ready { outline: 1px dashed var(--plot-accent); outline-offset: -2px; }
+#plot-canvas.toolbar-drop-over { outline: 2px solid var(--plot-accent); }
+.plot-element.media-empty { display: grid; place-items: center; padding: 0; border: 1px dashed var(--plot-accent); background: var(--plot-card); }
+.element-video.media-empty { background: #25221d; color: #fff7e8; }
+.media-upload { display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 6px 10px; color: inherit; }
+.element-audio .media-upload { flex-direction: row; gap: 9px; }
+.element-video button.media-upload:hover:not(:disabled) { background: #45371f; }
+.placeholder-icon { color: var(--plot-accent-ink); font-size: 27px; line-height: 1; }
+.element-video .placeholder-icon { color: var(--plot-accent); font-size: 35px; }
+.element-audio .placeholder-icon { font-size: 17px; }
+.placeholder-label { font-size: 12px; font-weight: 600; }
+.placeholder-wave { display: inline-flex; align-items: center; gap: 3px; }
+.placeholder-wave i { width: 2px; background: var(--plot-accent); border-radius: 2px; }
+.placeholder-grip { position: absolute; top: 5px; left: 8px; color: var(--plot-accent); font-size: 15px; cursor: move; }
+.media-replace { position: absolute; z-index: 2; top: 5px; right: 5px; padding: 3px 6px; color: var(--plot-ink); background: var(--plot-surface); border: 1px solid var(--plot-line); font-size: 10px; opacity: 0; pointer-events: none; }
+.plot-element:is(:hover, :focus-within, .selected) .media-replace { opacity: 1; pointer-events: auto; }
+.plot-element.media-drop-target { outline: 3px solid var(--plot-accent); outline-offset: 2px; }
+
+.library-header .browser-download { margin-left: auto; }
+.browser-download .export-options a { display: block; padding: 8px 10px; border-radius: 5px; color: inherit; text-decoration: none; white-space: nowrap; }
+.browser-download .export-options a:hover { background: var(--plot-accent-soft); }
+.browser-download .export-options p { margin: 5px 10px; min-width: 170px; font-size: 12px; }
+.plot-update-prompt { position: fixed; z-index: 15; bottom: 42px; right: 16px; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; max-width: calc(100% - 32px); padding: 12px; background: var(--plot-surface); border: 1px solid var(--plot-accent); border-radius: 8px; box-shadow: 0 3px 14px var(--plot-shadow); }
+.plot-update-prompt p { margin: 0; font-size: 13px; }
+.plot-update-dialog progress { width: 100%; accent-color: var(--plot-accent); }

@@ -1,0 +1,9 @@
+{
+  "identifier": "com.plotforge.desktop.dev",
+  "productName": "PlotForge Dev",
+  "app": {
+    "security": {
+      "devCsp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' ipc: http://ipc.localhost ws://127.0.0.1:4173; object-src 'none'; base-uri 'self'; frame-src 'self' about:"
+    }
+  }
+}

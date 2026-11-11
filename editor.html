@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="plotforge-mode" content="%MODE%">
+  <script src="/theme.js"></script>
+  <meta name="theme-color" content="#B58A35">
+  <title>PlotForge · Canvas</title>
+  <link rel="icon" href="./src-tauri/icons/32x32.png">
+  <link rel="stylesheet" href="./css/editor.css">
+  <link rel="stylesheet" href="./css/files.css">
+  <link rel="stylesheet" href="./css/theme.css">
+  <link rel="stylesheet" href="./css/plotforge.css">
+  <script type="module" src="./js/plot/editor.js"></script>
+</head>
+<body class="plot-editor loading">
+  <header class="app-header">
+    <a id="library-back" href="./" class="home-button" title="Project library" aria-label="Return to project library">←</a>
+    <a class="home-button" id="library" href="./" aria-label="Back to library"><img class="brand-logo" src="./src-tauri/icons/128x128.png" width="44" height="44" alt=""></a>
+    <div class="document-heading">
+      <div class="brand-name">PLOTFORGE <span class="stage-badge">FORGE STUDIOS</span></div>
+      <label><span class="sr-only">Project name</span><input id="document-title" maxlength="160" placeholder="Untitled Project"></label>
+      <span id="save-state" class="save-state" role="status">Opening project…</span>
+    </div>
+    <div class="header-actions">
+      <button id="settings" class="quiet-button">Settings</button>
+      <details class="export-menu"><summary class="primary-button">Export <span aria-hidden="true">⌄</span></summary>
+        <div class="export-options"><button data-export="plf">Export Project (.plf)</button><button data-export="png">Export Canvas as PNG</button><button data-export="pdf">Export Canvas as PDF</button></div>
+      </details>
+    </div>
+  </header>
+  <nav class="editing-bar" aria-label="Workspace tools">
+    <details class="file-menu toolbar-menu"><summary>File</summary><div class="file-menu-items">
+      <button id="file-library">Project Library</button><button id="save">Save Now</button><button id="versions">Version History</button>
+      <button data-export="plf">Export Project (.plf)</button><button data-export="png">Export Canvas as PNG</button><button data-export="pdf">Export Canvas as PDF</button>
+    </div></details>
+    <details class="tools-menu toolbar-menu"><summary>Tools</summary><div class="file-menu-items">
+      <button id="statistics">Project Statistics</button><button id="grid-toggle">Hide Grid</button><button id="guides-toggle">Disable Alignment Guides</button>
+      <button id="select-all">Select All</button>
+    </div></details>
+    <div class="history-tools"><button id="undo" aria-label="Undo" title="Undo (⌘/Ctrl Z)" disabled>↶</button><button id="redo" aria-label="Redo" title="Redo (⌘/Ctrl Shift Z)" disabled>↷</button></div>
+    <span class="toolbar-divider"></span>
+    <button id="outline-toggle" aria-pressed="true">☷ <span>Canvases</span></button>
+    <button id="inspector-toggle" aria-pressed="true">◫ <span>Inspector</span></button>
+    <span class="bar-spacer"></span>
+    <button id="help" class="help-button">Keyboard guide <span aria-hidden="true">?</span></button>
+  </nav>
+  <nav class="format-toolbar" aria-label="Insert elements">
+    <span class="toolbar-label">ADD TO CANVAS</span>
+    <button data-insert="text"><b>T</b> Text</button><button data-insert="note"><b>▤</b> Note</button><button data-insert="list"><b>☷</b> List</button>
+    <button data-insert="image"><b>▧</b> Image</button><button data-insert="audio"><b>♫</b> Audio</button><button data-insert="video"><b>▷</b> Video</button>
+    <button data-insert="shape"><b>◇</b> Shape</button><button data-insert="canvas"><b>▦</b> Nested Canvas</button>
+    <span class="toolbar-divider"></span><button id="connect" aria-pressed="false"><b>↗</b> Connect</button>
+  </nav>
+  <nav class="canvas-navigation" aria-label="Canvas path"><button id="back" class="quiet-button" hidden>← Back</button><ol id="breadcrumbs"></ol></nav>
+  <div id="save-error" class="document-banner" hidden><span id="save-error-message"></span><button id="retry-save" class="secondary-button">Retry Save</button></div>
+  <main class="plot-workspace">
+    <aside class="plot-sidebar" id="plot-outline" aria-label="Canvas hierarchy">
+      <div class="panel-heading">PROJECT CANVASES <span id="board-count"></span></div>
+      <nav id="board-tree" aria-label="Project canvases"></nav>
+      <p class="outline-instruction">Double-click a nested canvas card to open it.</p>
+    </aside>
+    <section id="plot-canvas" aria-label="Infinite canvas" tabindex="0">
+      <div id="plot-stage"></div><svg id="plot-links" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"></svg>
+      <p id="canvas-hint">Drag an element from the toolbar or drop a media file here.</p>
+      <div id="zoom-controls" aria-label="Zoom controls">
+        <button id="zoom-out" aria-label="Zoom out">−</button><button id="zoom-reset" title="Reset zoom to 100%" aria-label="Reset zoom to 100%">100%</button>
+        <button id="zoom-in" aria-label="Zoom in">+</button><button id="fit" title="Fit all elements" aria-label="Fit all elements">Fit</button>
+      </div>
+    </section>
+    <aside class="plot-sidebar inspector" id="plot-inspector" aria-label="Element inspector">
+      <div class="panel-heading">INSPECTOR</div><div id="inspector-body"></div>
+    </aside>
+  </main>
+  <footer class="status-bar"><span><span class="status-dot"></span><span id="selection-status">Canvas ready</span></span><span id="board-status"></span><span class="session-note">Local project</span></footer>
+  <div id="context-menu" role="menu" hidden></div>
+  <input id="media-file" type="file" hidden>
+  <div id="notice" class="notice" role="alert" hidden></div>
+  <dialog id="prompt-dialog">
+    <form method="dialog">
+      <h1 id="prompt-title"></h1><p id="prompt-message"></p>
+      <label class="plot-field">Name <input id="prompt-value" maxlength="160"></label>
+      <div class="dialog-actions"><button id="prompt-cancel" class="secondary-button" value="cancel" formnovalidate>Cancel</button><button id="prompt-ok" class="primary-button" value="ok">Save</button></div>
+    </form>
+  </dialog>
+  <dialog id="settings-dialog">
+    <form method="dialog"><button class="dialog-close" aria-label="Close settings">×</button></form>
+    <h1>Settings</h1>
+    <section class="settings-section"><h2>Appearance</h2><div class="appearance-options"><label><input type="radio" name="appearance" value="light"> Light</label><label><input type="radio" name="appearance" value="dark"> Dark</label><label><input type="radio" name="appearance" value="system"> System</label></div></section>
+    <section class="settings-section"><h2>Backups</h2><fieldset id="backup-fields"><label><input id="backups-enabled" type="checkbox"> Automatic backups</label><p><label>Backup interval <select id="backup-interval"><option value="1">Every minute</option><option value="5">Every 5 minutes</option><option value="10">Every 10 minutes</option><option value="15">Every 15 minutes</option><option value="30">Every 30 minutes</option></select></label></p></fieldset><p>Backups and autosave are local to this device.</p><button id="settings-versions" class="secondary-button">Open Version History</button></section>
+    <form method="dialog" class="dialog-actions"><button id="check-updates" type="button" class="quiet-button" hidden>Check for Updates</button><button class="primary-button">Done</button></form>
+  </dialog>
+  <dialog id="help-dialog">
+    <form method="dialog"><button class="dialog-close" aria-label="Close keyboard guide">×</button></form>
+    <h1>Keyboard guide</h1>
+    <dl><dt>Drag a toolbar tool</dt><dd>Drop it on the canvas to insert it. Use Enter or Space on a focused tool to insert at the center.</dd><dt>Drag empty space</dt><dd>Draw a selection box. Hold Shift to add to the selection or Shift-click to toggle individual cards.</dd><dt>Scroll or Space + drag</dt><dd>Pan in either direction.</dd><dt>Pinch or ⌘ / Ctrl + + / −</dt><dd>Zoom the canvas. Use ⌘ / Ctrl + 0 to reset to 100%.</dd><dt>Double-click</dt><dd>Edit text or open a nested canvas.</dd><dt>⌘ / Ctrl + Z</dt><dd>Undo. Add Shift to redo.</dd><dt>⌘ / Ctrl + C, X, V</dt><dd>Copy, cut, or paste. Pasting plain text creates a text box.</dd><dt>⌘ / Ctrl + A</dt><dd>Select all elements on this canvas.</dd><dt>⌘ / Ctrl + D</dt><dd>Duplicate the selection.</dd><dt>⌘ / Ctrl + S</dt><dd>Save this project locally now.</dd><dt>Delete / Backspace</dt><dd>Delete the selection.</dd><dt>Escape</dt><dd>Finish editing text or clear the current selection or tool.</dd></dl>
+  </dialog>
+  <dialog id="stats-dialog">
+    <form method="dialog"><button class="dialog-close" aria-label="Close statistics">×</button></form>
+    <h1>Project Statistics</h1><dl id="stats-list"></dl>
+  </dialog>
+  <dialog id="versions-dialog">
+    <form method="dialog"><button class="dialog-close" aria-label="Close version history">×</button></form>
+    <h1>Version History</h1>
+    <p>Local snapshots include every canvas and its media references.</p>
+    <div id="version-list" class="version-list"></div>
+    <div class="dialog-actions"><button id="version-create" class="secondary-button">Back Up Now</button></div>
+  </dialog>
+</body>
+</html>

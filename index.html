@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="plotforge-mode" content="%MODE%">
+  <script src="/theme.js"></script>
+  <meta name="theme-color" content="#B58A35">
+  <link rel="icon" href="./src-tauri/icons/32x32.png">
+  <title>PlotForge · Your projects</title>
+  <link rel="stylesheet" href="./css/editor.css">
+  <link rel="stylesheet" href="./css/home.css">
+  <link rel="stylesheet" href="./css/files.css">
+  <link rel="stylesheet" href="./css/theme.css">
+  <link rel="stylesheet" href="./css/plotforge.css">
+  <script type="module" src="./js/plot/home.js"></script>
+</head>
+<body class="library plot-library">
+  <header class="library-header">
+    <img class="brand-logo" src="./src-tauri/icons/128x128.png" width="44" height="44" alt="">
+    <div class="library-wordmark">PlotForge<small>FORGE STUDIOS</small></div>
+  </header>
+  <main class="library-main">
+    <section class="library-intro">
+      <h1>YOUR PROJECTS</h1>
+      <div class="library-actions">
+        <button id="open-project" class="secondary-button" disabled>Open .plf Project</button>
+        <button id="new-project" class="primary-button" disabled>＋ New Project</button>
+        <input id="import-file" type="file" accept=".plf" hidden>
+      </div>
+    </section>
+    <div id="library-error" class="library-error" role="alert" hidden></div>
+    <div class="library-controls">
+      <span id="library-count" class="library-count">Loading projects…</span>
+      <label class="library-sort"><span class="sr-only">Sort projects</span><select id="sort"><option value="recent">Recently edited</option><option value="title">Title A–Z</option><option value="oldest">Oldest edited</option></select></label>
+      <button id="settings" class="quiet-button">Settings</button>
+      <label class="search-wrap"><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="Search your projects" aria-label="Search projects"></label>
+    </div>
+    <section id="script-grid" class="script-grid" aria-label="Projects"></section>
+    <section id="empty-state" class="empty-state" hidden>
+      <h2 id="empty-title" hidden>No projects match your search.</h2><p id="empty-text"></p>
+      <button id="sample-project" class="sample-link">Explore a sample project →</button>
+    </section>
+    <footer class="library-footer"><span>Projects save on this device. Export a .plf to keep a portable copy.</span><span>PlotForge 1.0.0 · Forge Studios</span></footer>
+  </main>
+  <dialog id="prompt-dialog">
+    <form method="dialog">
+      <h1 id="prompt-title"></h1><p id="prompt-message"></p>
+      <label class="plot-field">Name <input id="prompt-value" maxlength="160"></label>
+      <div class="dialog-actions"><button id="prompt-cancel" class="secondary-button" value="cancel" formnovalidate>Cancel</button><button id="prompt-ok" class="primary-button" value="ok">Save</button></div>
+    </form>
+  </dialog>
+  <dialog id="settings-dialog">
+    <form method="dialog"><button class="dialog-close" aria-label="Close settings">×</button></form>
+    <h1>Settings</h1>
+    <section class="settings-section"><h2>Appearance</h2><div class="appearance-options"><label><input type="radio" name="appearance" value="light"> Light</label><label><input type="radio" name="appearance" value="dark"> Dark</label><label><input type="radio" name="appearance" value="system"> System</label></div></section>
+    <section class="settings-section"><h2>Backups</h2><fieldset id="backup-fields"><label><input id="backups-enabled" type="checkbox"> Automatic backups</label><p><label>Backup interval <select id="backup-interval"><option value="1">Every minute</option><option value="5">Every 5 minutes</option><option value="10">Every 10 minutes</option><option value="15">Every 15 minutes</option><option value="30">Every 30 minutes</option></select></label></p></fieldset><p>Backups and autosave are local to this device.</p></section>
+    <form method="dialog" class="dialog-actions"><button id="check-updates" type="button" class="quiet-button" hidden>Check for Updates</button><button class="primary-button">Done</button></form>
+  </dialog>
+  <div id="library-notice" class="notice" role="status" hidden>Project removed from the library. <button id="undo-delete-script">Undo</button></div>
+  <div id="notice" class="notice" role="alert" hidden></div>
+</body>
+</html>

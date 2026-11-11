@@ -1,0 +1,38 @@
+{
+  "name": "plotforge",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Offline visual story planning for macOS, Windows, and the browser",
+  "license": "GPL-3.0-only",
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  },
+  "scripts": {
+    "start": "vite --host 127.0.0.1 --port 4173 --strictPort",
+    "dev:browser": "npm start --",
+    "dev:mac": "npm run desktop:dev --",
+    "build": "vite build",
+    "preview": "vite preview --host 127.0.0.1 --port 4174 --strictPort",
+    "test": "node --test tests/plot/*.test.js",
+    "test:browser": "playwright test",
+    "release": "node scripts/plot/release.mjs",
+    "check": "npm test && npm run build",
+    "tauri": "tauri",
+    "desktop:dev": "tauri dev --config src-tauri/tauri.local.conf.json",
+    "desktop:check": "npm run build && cargo check --locked --manifest-path src-tauri/Cargo.toml",
+    "desktop:test": "npm run build && cargo test --locked --manifest-path src-tauri/Cargo.toml --features custom-protocol",
+    "desktop:build": "tauri build --no-bundle",
+    "desktop:smoke": "npm run build && cargo build --locked --manifest-path src-tauri/Cargo.toml --features custom-protocol,native-smoke && node scripts/plot/smoke-desktop.mjs"
+  },
+  "dependencies": {
+    "html2canvas": "1.4.1",
+    "jspdf": "4.2.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.0",
+    "@tauri-apps/cli": "2.12.3",
+    "fake-indexeddb": "6.2.5",
+    "vite": "7.3.7"
+  }
+}
