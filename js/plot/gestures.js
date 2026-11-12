@@ -96,7 +96,8 @@ export function bindGestures(editor) {
     const selected = editor.selectedIds();
     gesture = { mode, key, view, board, selected, start: pos, pointer: event.pointerId, moved: false };
     if (mode === 'move') {
-      gesture.moving = board.elements.filter(model => selected.has(model.id) && !selected.has(model.stackId) && editor.canMove(model.id));
+      const movable = editor.movableSelection(selected);
+      gesture.moving = board.elements.filter(model => movable.has(model.id));
       gesture.movingIds = new Set(gesture.moving.map(model => model.id));
       gesture.others = board.elements.filter(model => !selected.has(model.id));
     } else if (mode === 'resize') gesture.model = board.elements.find(model => model.id === key);
@@ -133,7 +134,7 @@ export function bindGestures(editor) {
       editor.setView({ ...view, x: pan(view.x + dx), y: pan(view.y + dy) }, false);
     } else if (mode === 'move') {
       if (!current.moving.length) return;
-      const snap = editor.guidesEnabled() && !event.altKey ? snapMove(current.moving, current.others, dx / view.zoom, dy / view.zoom, view.zoom)
+      const snap = board.kind !== 'timeline' && editor.guidesEnabled() && !event.altKey ? snapMove(current.moving, current.others, dx / view.zoom, dy / view.zoom, view.zoom)
         : { dx: dx / view.zoom, dy: dy / view.zoom };
       const elements = board.elements.map(model => current.movingIds.has(model.id) ? { ...model, x: point(model.x + snap.dx), y: point(model.y + snap.dy) } : model);
       editor.previewBoard(board, elements, snap, 'move', worldAt(view, pos.x, pos.y));
@@ -174,7 +175,8 @@ export function bindGestures(editor) {
       const { x, y } = position(event);
       editor.setView(zoomAt(view, x, y, view.zoom * Math.exp(-clamp(dy, -300, 300) * .006)));
     } else {
-      editor.setView({ ...view, x: pan(view.x - dx), y: pan(view.y - dy) });
+      const horizontal = event.shiftKey && editor.getBoard().kind === 'timeline' && !dx;
+      editor.setView({ ...view, x: pan(view.x - (horizontal ? dy : dx)), y: pan(view.y - (horizontal ? 0 : dy)) });
     }
   }, { passive: false });
   canvas.addEventListener('gesturestart', event => {

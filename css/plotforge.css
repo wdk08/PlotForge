@@ -264,3 +264,15 @@
 #floor-scene[data-tool=select] [data-plan-handle=rotate] { cursor: crosshair; }
 #plot-canvas.floor-plan-active :is(#plot-stage, #plot-links, #canvas-hint) { display: none; }
 #plot-canvas.space-held #floor-scene, #plot-canvas.panning #floor-scene { pointer-events: none; }
+
+#timeline-tools { flex-wrap: wrap; padding-block: 5px; }
+#timeline-scale { width: clamp(80px, 13vw, 160px); }
+#timeline-scale-value { width: 68px; }
+#timeline-format-fields, .timeline-schedule, .timeline-date-fields { display: grid; gap: 8px; }
+.timeline-date-fields { margin: 0; padding: 8px 6px; min-width: 0; border: 1px solid var(--plot-line); border-radius: 5px; }
+.timeline-date-fields legend { padding: 0 4px; font-size: 11px; color: var(--plot-muted); }
+.timeline-error:empty { display: none; }
+#inspector-body .timeline-error { color: var(--plot-accent-ink); }
+.timeline-date-fields [aria-invalid=true] { outline: 1px solid #b5543f; }
+.timeline-axis-label { fill: var(--plot-ink); text-anchor: middle; font-size: 11px; paint-order: stroke; stroke: var(--plot-canvas); stroke-width: 3px; }
+.timeline-connector { stroke: var(--plot-accent); stroke-width: 1px; opacity: .75; }

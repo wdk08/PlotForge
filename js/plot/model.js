@@ -1,3 +1,5 @@
+import { stackFamily, stackTree, stackWalk } from './stack-tree.js';
+import { DATE_ORDERS, DATE_SEPARATORS, MONTH_FORMATS } from './timeline.js';
 import { FLOOR_ITEMS, FLOOR_UNITS, PLAN_LIMIT } from './floor-model.js';
 
 export const SCHEMA = 1;
@@ -140,8 +142,7 @@ export function connect(board, from, to) {
 
 export function extractSelection(project, boardId, ids) {
   const board = project.boards[boardId];
-  ids = new Set(ids);
-  for (const element of board.elements) if (ids.has(element.stackId)) ids.add(element.id);
+  ids = stackFamily(board.elements, ids);
   const elements = board.elements.filter(element => ids.has(element.id)).map(element =>
     element.stackId && !ids.has(element.stackId) ? { ...element, stackId: undefined } : element);
   const connections = board.connections.filter(connection => ids.has(connection.from) && ids.has(connection.to));
@@ -187,6 +188,7 @@ export function insertSelection(project, boardId, fragment, dx, dy) {
     const key = boardIds.get(child.id);
     next.boards[key] = { id: key, kind: child.kind, ...cloneContent(child, 0, 0) };
     if (child.plan) next.boards[key].plan = structuredClone(child.plan);
+    if (child.timeline) next.boards[key].timeline = { ...child.timeline };
     if (fragment.views[child.id]) byBoard[key] = fragment.views[child.id];
   }
   return { project: { ...next, view: { ...next.view, byBoard } }, ids: new Set(content.elements.map(element => element.id)) };
@@ -287,6 +289,13 @@ export function validateProject(project) {
       if (board.kind !== 'map' || board.elements.length || board.connections.length || board.background !== undefined) fail('Invalid floor plan workspace.');
       validateFloorPlan(board.plan);
     }
+    if (board.timeline !== undefined) {
+      const settings = board.timeline;
+      if (board.kind !== 'timeline' || !object(settings) || !number(settings.scale, .1, 20) ||
+          !Object.hasOwn(DATE_ORDERS, settings.order) || !Object.hasOwn(DATE_SEPARATORS, settings.separator) ||
+          !Object.hasOwn(MONTH_FORMATS, settings.month) || !['12', '24'].includes(settings.clock) ||
+          ![settings.dateZero, settings.hourZero, settings.seconds].every(flag)) fail('Invalid timeline settings.');
+    }
     const layers = boardLayers(board);
     if (!Array.isArray(layers) || !layers.some(layer => layer?.id === 'default')) fail('A default layer is required.');
     const layerIds = new Set();
@@ -308,6 +317,9 @@ export function validateProject(project) {
       if (type === 'stack' && (!STACK_LAYOUTS.includes(element.layout) || !flag(element.expanded))) fail('Invalid stack.');
       if ((type === 'reference' && !isId(element.targetId)) || (element.targetId !== undefined && !isId(element.targetId))) fail('Invalid element link.');
       if (type === 'event' && (!string(element.description, 12000) || !string(element.date, 160) || !string(element.time, 40) ||
+        (element.endDate !== undefined && !string(element.endDate, 160)) || (element.endTime !== undefined && !string(element.endTime, 40)) ||
+        (element.dateMode !== undefined && !['calendar', 'fictional'].includes(element.dateMode)) ||
+        (element.timelineOffset !== undefined && !number(element.timelineOffset, -WORLD, WORLD)) ||
         !number(element.duration, 0, 1e7) || (element.chronology !== null && !number(element.chronology, -1e9, 1e9)))) fail('Invalid timeline event.');
       if (WORKSPACES.includes(type)) {
         if (!isId(element.boardId) || owned.has(element.boardId)) fail('The canvas hierarchy contains a cycle or shared child.');
@@ -340,8 +352,12 @@ export function validateProject(project) {
     }
     const stacks = new Set(board.elements.filter(model => model.type === 'stack').map(model => model.id));
     for (const element of board.elements) {
-      if (element.stackId !== undefined && (element.type === 'stack' || WORKSPACES.includes(element.type) || !stacks.has(element.stackId))) fail('Invalid stack membership.');
+      if (element.stackId !== undefined && !stacks.has(element.stackId)) fail('Invalid stack membership.');
     }
+    const { roots, children } = stackTree(board.elements, false);
+    let reachable = 0;
+    for (const model of stackWalk(roots, children)) reachable++;
+    if (reachable !== board.elements.length) fail('Stack containment contains a cycle.');
     if (board.background !== undefined && (board.kind !== 'map' || !board.elements.some(element => element.id === board.background && element.type === 'image'))) fail('Invalid map image.');
     for (const link of board.connections) {
       if (!object(link)) fail('Invalid connection.');

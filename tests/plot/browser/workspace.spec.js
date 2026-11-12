@@ -655,11 +655,14 @@ test('planning labels resolve variables, retain editable tokens and follow their
   await shape.click();
   const link = page.locator('#plot-links [data-connection]');
   const line = link.locator('.connection-visible').first();
-  const center = await line.evaluate(node => {
-    const { left, top } = node.ownerSVGElement.getBoundingClientRect();
+  const linePoint = fraction => page.locator('#plot-links').evaluate((svg, fraction) => {
+    const { left, top } = svg.getBoundingClientRect();
+    const node = svg.querySelector('line.connection-visible');
     const [x1, x2, y1, y2] = ['x1', 'x2', 'y1', 'y2'].map(attr => Number(node.getAttribute(attr)));
-    return { x: left + (x1 + x2) / 2, y: top + (y1 + y2) / 2 };
-  });
+    return { x: left + x1 + (x2 - x1) * fraction, y: top + y1 + (y2 - y1) * fraction };
+  }, fraction);
+  await expect(line).toBeAttached();
+  const center = await linePoint(.5);
   await page.mouse.dblclick(center.x, center.y);
   const label = page.getByRole('textbox', { name: 'Connection label' });
   await expect(label).toBeFocused();
@@ -691,12 +694,8 @@ test('planning labels resolve variables, retain editable tokens and follow their
   await saved(page);
   await page.reload();
   await expect(rendered).toHaveText('Mina meets {unknown}');
-  const linePoint = await line.evaluate(node => {
-    const { left, top } = node.ownerSVGElement.getBoundingClientRect();
-    const [x1, x2, y1, y2] = ['x1', 'x2', 'y1', 'y2'].map(attr => Number(node.getAttribute(attr)));
-    return { x: left + x1 + (x2 - x1) / 4, y: top + y1 + (y2 - y1) / 4 };
-  });
-  await page.mouse.dblclick(linePoint.x, linePoint.y);
+  const after = await linePoint(.25);
+  await page.mouse.dblclick(after.x, after.y);
   await expect(label).toHaveValue('{hero} meets {unknown}');
 });
 
@@ -766,7 +765,7 @@ test('planning stacks, layers and references survive reopening and update from t
   await expect(reference).toContainText('Updated detail');
 });
 
-test('planning maps and timelines save independent workspaces, routes, and chronological events', async ({ page }) => {
+test('planning maps preserve images, routes and independent navigation', async ({ page }) => {
   await create(page, 'Story');
   const note = await dragTool(page, 'note', 90, 100);
   const map = await dragTool(page, 'map', 420, 100);
@@ -805,33 +804,205 @@ test('planning maps and timelines save independent workspaces, routes, and chron
   const png = await readFile(await mapExport.path());
   expect(png.subarray(1, 4).toString()).toBe('PNG');
 
-  await page.locator('#back').click();
-  const timeline = await dragTool(page, 'timeline', 690, 100);
+});
+
+const schedule = (page, name) => page.locator('#inspector-body').getByLabel(name, { exact: true });
+async function enterValue(control, value) {
+  await control.fill(value);
+  await control.press('Tab');
+}
+
+test('timeline pickers and manual entry stay synchronized, with per-board formatting and fictional dates', async ({ page }) => {
+  await create(page);
+  const timeline = await dragTool(page, 'timeline', 100, 100);
   await timeline.dblclick();
-  const date = page.getByRole('textbox', { name: 'Date', exact: true });
   await page.locator('#timeline-event').click();
-  await date.fill('2001-05-05');
+  const date = schedule(page, 'Start date');
+  const time = schedule(page, 'Start time');
+  const datePicker = schedule(page, 'Start date picker');
+  const timePicker = schedule(page, 'Start time picker');
+  await date.fill('2026-02-30');
+  await expect(date).toHaveAttribute('aria-invalid', 'true');
+  await expect(page.getByText('Enter a valid calendar date or choose Fictional / relative.')).toBeVisible();
   await date.press('Tab');
-  await page.locator('#timeline-event').click();
-  await date.fill('2001-05-01');
-  await date.press('Tab');
-  await page.locator('#timeline-event').click();
-  const events = card(page, 'event');
-  const later = events.filter({ hasText: '2001-05-05' });
-  const earlier = events.filter({ hasText: '2001-05-01' });
-  const undated = events.filter({ hasText: 'Undated' });
-  const left = async node => (await node.boundingBox()).x;
-  expect(await left(earlier)).toBeLessThan(await left(later));
-  expect((await undated.boundingBox()).y).toBeGreaterThan((await later.boundingBox()).y);
-  await drag(page, earlier, (await left(later)) - (await left(earlier)) + 120, 0);
-  await expect(events.filter({ hasText: '2001-05-06' })).toBeVisible();
-  await undated.click();
-  await date.fill('First Moon');
-  await date.press('Tab');
-  await page.getByLabel('Chronology').fill('1');
-  await page.getByLabel('Chronology').press('Tab');
+  await expect(date).toHaveValue('2026-02-30');
+  await enterValue(date, 'Nov 11, 2026');
+  await expect(datePicker).toHaveValue('2026-11-11');
+  await enterValue(time, '3:30:45 PM');
+  await expect(timePicker).toHaveValue('15:30:45');
+  await enterValue(datePicker, '2026-11-12');
+  await expect(date).toHaveValue('2026-11-12');
+  await enterValue(schedule(page, 'End date'), '2026-11-13');
+  await enterValue(schedule(page, 'End time picker'), '16:15');
+  await expect(schedule(page, 'End time')).toHaveValue('16:15');
+  await expect(card(page, 'event').locator('.planning-date')).toHaveText('2026-11-12 · 15:30 → 2026-11-13 · 16:15');
+
+  await page.locator('#timeline-format').click();
+  const dialog = page.locator('#timeline-format-dialog');
+  await dialog.getByRole('combobox', { name: 'Date order' }).selectOption('mdy');
+  await dialog.getByRole('combobox', { name: 'Date separator' }).selectOption(' ');
+  await dialog.getByRole('combobox', { name: 'Month display' }).selectOption('long');
+  await dialog.getByRole('combobox', { name: 'Clock' }).selectOption('12');
+  await dialog.getByLabel('Pad hour with a zero').uncheck();
+  await dialog.getByLabel('Show seconds').check();
+  await expect(dialog.locator('output')).toHaveText('November 11, 2026 · 3:30:45 PM');
+  await dialog.getByRole('button', { name: 'Save Format' }).click();
+  const formatted = 'November 12, 2026 · 3:30:45 PM → November 13, 2026 · 4:15:00 PM';
+  await expect(card(page, 'event').locator('.planning-date')).toHaveAttribute('title', formatted);
   await saved(page);
   await page.reload();
-  await expect(page.locator('#timeline-tools')).toBeVisible();
-  expect(await left(events.filter({ hasText: 'First Moon' }))).toBeLessThan(await left(later));
+  await expect(card(page, 'event').locator('.planning-date')).toHaveText(formatted);
+  await card(page, 'event').click();
+  await expect(datePicker).toHaveValue('2026-11-12');
+  await expect(timePicker).toHaveValue('15:30:45');
+
+  await page.locator('#timeline-event').click();
+  await schedule(page, 'Date system').selectOption('fictional');
+  await enterValue(date, 'First Moon');
+  await enterValue(time, 'Dusk');
+  await enterValue(schedule(page, 'Chronology'), '4');
+  await expect(card(page, 'event').filter({ hasText: 'First Moon · Dusk' })).toBeVisible();
+  await expect(page.locator('[data-timeline-axis=relative]')).toHaveCount(1);
+  await page.locator('#timeline-event').click();
+  await enterValue(time, '9:30 AM');
+  await expect(card(page, 'event').filter({ hasText: '9:30:00 AM' })).toBeVisible();
+  await expect(page.locator('[data-timeline-axis=clock]')).toHaveCount(1);
+});
+
+test('timeline spacing is proportional and scale and vertical drag persist independently', async ({ page }) => {
+  await create(page);
+  await dragTool(page, 'timeline', 100, 100);
+  await dragTool(page, 'timeline', 530, 100);
+  const timeline = card(page, 'timeline').first(), other = card(page, 'timeline').last();
+  await timeline.dblclick();
+  for (const [name, date] of [['A', '2020-01-01'], ['B', '2020-09-01'], ['C', '2033-09-01']]) {
+    await page.locator('#timeline-event').click();
+    await enterValue(page.getByLabel('Title', { exact: true }), name);
+    await enterValue(schedule(page, 'Start date'), date);
+  }
+  const fit = page.getByRole('button', { name: 'Fit all elements' });
+  await fit.click();
+  const a = page.locator('[data-type=event][aria-label=A]');
+  const b = page.locator('[data-type=event][aria-label=B]');
+  const c = page.locator('[data-type=event][aria-label=C]');
+  const x = async node => parseFloat((await worldPosition(node))[0]);
+  const gaps = async () => [await x(b) - await x(a), await x(c) - await x(b)];
+  const [short, long] = await gaps();
+  expect(long / short).toBeCloseTo(19.46, 1);
+  const scale = page.locator('#timeline-scale-value');
+  const focus = async () => {
+    const [zoom, left] = await canvasTransform(page);
+    return ((await board(page).boundingBox()).width / 2 - left) / zoom - 70;
+  };
+  const before = await focus();
+  await enterValue(scale, '2');
+  await expect.poll(focus).toBeCloseTo(before * 2, 1);
+  await fit.click();
+  const [wideShort, wideLong] = await gaps();
+  expect(wideShort).toBeCloseTo(short * 2);
+  expect(wideLong).toBeCloseTo(long * 2);
+  const baseX = await x(b);
+  const oldY = parseFloat((await worldPosition(b))[1]);
+  await drag(page, b.locator('.element-title'), 115, -125);
+  await expect.poll(() => x(b)).toBeCloseTo(baseX);
+  const newY = parseFloat((await worldPosition(b))[1]);
+  expect(newY).toBeLessThan(74);
+  expect(newY).toBeLessThan(oldY);
+  await expect(b.locator('.planning-date')).toHaveText('2020-09-01');
+  const id = await b.getAttribute('data-element');
+  const connector = page.locator(`[data-event-connector="${id}"]`);
+  const screenAxis = async () => parseFloat(await connector.getAttribute('x1'));
+  const axisBefore = await screenAxis();
+  await board(page).dispatchEvent('wheel', { deltaX: 25, bubbles: true, cancelable: true });
+  await expect.poll(screenAxis).toBeCloseTo(axisBefore - 25);
+  await board(page).focus();
+  await page.keyboard.down('Space');
+  await drag(page, board(page), 20, 0);
+  await page.keyboard.up('Space');
+  await expect.poll(screenAxis).toBeCloseTo(axisBefore - 5);
+  await page.getByRole('button', { name: 'Zoom in', exact: true }).click();
+  await expect(page.locator('.timeline-axis-label').first()).toBeAttached();
+  await saved(page);
+  await page.reload();
+  await fit.click();
+  await expect(scale).toHaveValue('2');
+  expect(parseFloat((await worldPosition(b))[1])).toBeCloseTo(newY);
+
+  await page.locator('#timeline-scale-reset').click();
+  await expect(scale).toHaveValue('1');
+  await fit.click();
+  expect((await gaps())[0]).toBeCloseTo(short);
+  await page.locator('#timeline-scale').fill('0.5');
+  await expect(scale).toHaveValue('0.5');
+  await page.locator('#back').click();
+  await other.dblclick();
+  await expect(scale).toHaveValue('1');
+  await page.locator('#back').click();
+  await timeline.dblclick();
+  await expect(scale).toHaveValue('0.5');
+});
+
+test('nested stacks move between parents and keep timeline, canvas and floor-plan navigation', async ({ page }) => {
+  await create(page);
+  const named = (type, name) => page.locator(`[data-type="${type}"][aria-label="${name}"]`);
+  const title = page.getByLabel('Title', { exact: true });
+  await dragTool(page, 'stack', 65, 80);
+  await enterValue(title, 'Outer');
+  await dragTool(page, 'stack', 525, 400);
+  await enterValue(title, 'Inner');
+  const outer = named('stack', 'Outer'), inner = named('stack', 'Inner');
+  async function drop(source, target, x = 75, y = 32) {
+    const from = await source.boundingBox(), to = await target.boundingBox();
+    await drag(page, source, to.x + x - from.x - from.width / 2, to.y + y - from.y - from.height / 2);
+  }
+  await drop(inner.locator('.element-title'), outer);
+  await expect(inner).toHaveCount(0);
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(inner).toBeVisible();
+  await page.getByRole('button', { name: 'Redo', exact: true }).click();
+  await expect(inner).toHaveCount(0);
+  await outer.getByRole('button', { name: 'Expand' }).click();
+  await expect(inner).toBeVisible();
+
+  const timeline = await dragTool(page, 'timeline', 540, 90);
+  await drop(timeline, inner);
+  const nested = await dragTool(page, 'canvas', 540, 225);
+  await drop(nested, inner);
+  const floor = await dragTool(page, 'map', 540, 365);
+  await page.getByRole('button', { name: 'Floor Plan', exact: true }).click();
+  await drop(floor, inner);
+  await expect(inner).toContainText('3 cards');
+  await inner.getByRole('button', { name: 'Expand' }).click();
+  await timeline.dblclick();
+  await enterValue(page.locator('#timeline-scale-value'), '3');
+  await page.locator('#back').click();
+  await nested.dblclick();
+  await expect(current(page)).toHaveText('Untitled Canvas');
+  await page.locator('#back').click();
+  await floor.dblclick();
+  await expect(page.locator('#floor-scene')).toBeVisible();
+  await page.locator('#back').click();
+
+  await inner.locator('.element-title').click();
+  const layout = page.getByRole('combobox', { name: 'Layout', exact: true });
+  await layout.selectOption('grid');
+  await layout.selectOption('horizontal');
+  await layout.selectOption('vertical');
+  await dragTool(page, 'stack', 530, 155);
+  await enterValue(title, 'Other stack');
+  const other = named('stack', 'Other stack');
+  await drop(inner.locator('.element-title'), other);
+  await expect(inner).toHaveCount(0);
+  await expect(outer).toContainText('0 cards');
+  await other.getByRole('button', { name: 'Expand' }).click();
+  await expect(inner).toBeVisible();
+  await saved(page);
+  await page.reload();
+  await expect(inner).toBeVisible();
+  await timeline.dblclick();
+  await expect(page.locator('#timeline-scale-value')).toHaveValue('3');
+  await page.locator('#back').click();
+  await drop(inner.locator('.element-title'), board(page), 640, 60);
+  await expect(other).toContainText('0 cards');
+  await expect(inner).toContainText('3 cards');
 });

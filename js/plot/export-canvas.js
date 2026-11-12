@@ -1,3 +1,4 @@
+import { timelineAxes, timelineSettings } from './timeline.js';
 import html2canvas from 'html2canvas';
 import { boardBounds, endpoints } from './geometry.js';
 import { cardAsset, makeCard, referenceSource } from './render.js';
@@ -41,17 +42,31 @@ function drawConnections(context, board, box, scale, variables) {
   context.save();
   context.scale(scale, scale);
   context.translate(-box.left, -box.top);
-  if (board.kind === 'timeline' && board.elements.some(model => model.y === 95)) {
-    context.strokeStyle = context.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--plot-accent').trim();
+  if (board.kind === 'timeline') {
+    context.strokeStyle = context.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--plot-accent-ink').trim();
     context.lineWidth = 1;
-    context.beginPath();
-    context.moveTo(box.left, 74);
-    context.lineTo(box.right, 74);
-    context.stroke();
-    for (const model of board.elements.filter(model => model.y === 95)) {
+    context.font = '12px sans-serif';
+    context.textAlign = 'center';
+    for (const axis of timelineAxes(board.elements, timelineSettings(board), box.left, box.right, Math.min(1, scale))) {
       context.beginPath();
-      context.arc(model.x + 12, 74, 4, 0, Math.PI * 2);
-      context.fill();
+      context.moveTo(box.left, axis.y);
+      context.lineTo(box.right, axis.y);
+      for (const item of axis.items) {
+        const edge = Math.max(item.y, Math.min(item.y + item.h, axis.y));
+        context.moveTo(item.axisX, axis.y);
+        context.lineTo(item.axisX, edge);
+      }
+      for (const tick of axis.ticks) {
+        context.moveTo(tick.x, axis.y - 4);
+        context.lineTo(tick.x, axis.y + 4);
+        context.fillText(tick.label, tick.x, axis.y - 9);
+      }
+      context.stroke();
+      for (const item of axis.items) {
+        context.beginPath();
+        context.arc(item.axisX, axis.y, 3, 0, Math.PI * 2);
+        context.fill();
+      }
     }
   }
   for (const link of board.connections) {
@@ -137,7 +152,8 @@ async function exportFloor(plan, variables, format) {
 export async function exportCanvas(project, board, store, format) {
   if (board.plan) return exportFloor(board.plan, project.variables, format);
   board = presentBoard(board);
-  const box = boardBounds(board.elements, 30);
+  const axes = board.kind === 'timeline' ? board.elements.filter(item => item.axisY).map(item => ({ x: item.axisX, y: item.axisY, w: 0, h: 0 })) : [];
+  const box = boardBounds([...board.elements, ...axes], 30);
   const width = Math.ceil(box.width), height = Math.ceil(box.height);
   const scale = Math.min(2, MAX_SIDE / width, MAX_SIDE / height, Math.sqrt(MAX_PIXELS / (width * height)));
   const surface = document.createElement('div');

@@ -20,7 +20,10 @@ import { bindContextDismissal, bindGestures, showContext } from './gestures.js';
 import { bindToolbarDrag } from './toolbar-drag.js';
 import { cleanHTML, pasteText } from './rich-text.js';
 import { bindPlanningPanels } from './panels.js';
-import { canStack, elementIndex, layerAccess, moveTimelineEvent, placeInStack, presentBoard, stackOpen } from './planning.js';
+import { elementIndex, layerAccess, lockedSubtree, placeInStack, presentBoard, stackOpen } from './planning.js';
+import { stackAncestors, stackFamily, topSelected } from './stack-tree.js';
+import { TIMELINE_ORIGIN, timelineSettings } from './timeline.js';
+import { bindTimelineControls } from './timeline-controls.js';
 import { bindVariableSuggestions, resolveText } from './variables.js';
 
 import { bindFloorEditor } from './floor-editor.js';
@@ -60,11 +63,7 @@ async function start() {
     return !access.hidden && !access.locked;
   };
   const canEdit = key => editable(getBoard(), getElement(key));
-  function canMove(key) {
-    const model = getElement(key), board = getBoard();
-    return editable(board, model) && (model.type !== 'stack' ||
-      !board.elements.some(child => child.stackId === key && layerAccess(board)(child).locked));
-  }
+  const canMove = key => canEdit(key) && !lockedSubtree(getBoard(), key);
   const interactionBoard = () => {
     const board = getBoard(), access = layerAccess(board), displayed = presentBoard(board);
     return { ...displayed, elements: displayed.elements.filter(model => !access(model).locked) };
@@ -112,6 +111,7 @@ async function start() {
     $('map-tools').hidden = board.kind !== 'map' || Boolean(board.plan);
     $('map-image').textContent = board.background ? 'Replace Map Image' : 'Upload Map Image';
     $('timeline-tools').hidden = board.kind !== 'timeline';
+    syncTimelineControls(board);
     canvas.classList.toggle('connecting', Boolean(connecting));
     $('selection-status').textContent = connecting ? connecting.id ? 'Choose a destination element' : 'Choose the first element'
       : connectionId ? 'Connection selected' : ids.size ? `${ids.size} selected` : 'Canvas ready';
@@ -203,14 +203,20 @@ async function start() {
     endEditing();
     connecting = connectionId = undefined;
     draft = guides = marqueeRect = undefined;
-    assign({ ...project, view: { ...project.view, active: key } });
+    assign(prepareTimeline({ ...project, view: { ...project.view, active: key } }));
     canvas.focus({ preventScroll: true });
   }
   function undo(forward) {
     endEditing();
     connecting = undefined;
     const next = forward ? history.redo(project) : history.undo(project);
-    if (next !== project) assign(next);
+    if (next !== project) {
+      const before = getBoard(), after = next.boards[before.id];
+      if (next.view.active === before.id && before.kind === 'timeline' && after?.kind === 'timeline') {
+        const ratio = timelineSettings(after).scale / timelineSettings(before).scale;
+        assign(ratio === 1 ? next : withTimelineView(next, scaledView(ratio)));
+      } else assign(prepareTimeline(next));
+    }
   }
 
   function beginField() { field = { recorded: false }; }
@@ -338,6 +344,10 @@ async function start() {
       model.y = point(model.y + offset - model.h / 2);
     }
     if (!place(model, active(), plan)) return;
+    if (type === 'event' && getBoard().kind === 'timeline') {
+      const view = visibleEventView(project, model.id);
+      if (view !== getView()) setView(view);
+    }
     canvas.focus({ preventScroll: true });
     return model;
   }
@@ -425,9 +435,9 @@ async function start() {
   }
   async function deleteSelection(cut = false) {
     endEditing();
-    const board = active(), ids = new Set(selectedIds()), link = connectionId;
+    const board = active(), link = connectionId;
+    const ids = cut ? stackFamily(getBoard().elements, selectedIds()) : new Set(selectedIds());
     if (!ids.size && !link) return;
-    if (cut) for (const model of getBoard().elements) if (ids.has(model.stackId)) ids.add(model.id);
     if (cut && [...ids].some(key => !canEdit(key))) throw new Error('Show and unlock the stack contents before cutting.');
     if (getBoard().elements.some(model => WORKSPACES.includes(model.type) && ids.has(model.id))) {
       if (!await ask('Delete nested canvas?', 'The selected workspaces and their contents will also be deleted. You can undo this in the editor.', undefined, 'Delete')) return;
@@ -474,41 +484,55 @@ async function start() {
   const api = {
     selection, patch, patchLink, setSize, edit, endEditing, format, beginField, endField, editItem, moveItem, removeItem, getElement, navigate,
     duplicate, delete: () => deleteSelection(), layer: moveLayer, paint, activate, getBoard: interactionBoard, getView, selectedIds, selectElement, selectLink, clearSelection,
-    setView, persistView, canEdit, canMove, editConnection, guidesEnabled: () => project.settings.guides, isConnecting: () => Boolean(connecting), connectionClick, connectionHover, clearDraft,
+    setView, persistView, canEdit, canMove, editConnection,
+    movableSelection(ids) { return topSelected(getBoard().elements, new Set([...ids].filter(canMove))); }, guidesEnabled: () => project.settings.guides, isConnecting: () => Boolean(connecting), connectionClick, connectionHover, clearDraft,
     previewBoard(original, elements, nextGuides, mode, position) {
-      const geometry = new Map();
-      const floating = new Set();
+      const geometry = new Map(), floating = new Set();
+      const moving = mode === 'move', timeline = original.kind === 'timeline';
       for (const [index, model] of elements.entries()) {
-        if (model === original.elements[index]) continue;
+        const before = original.elements[index];
+        if (model === before) continue;
         const { x, y, w, h } = model;
-        geometry.set(model.id, mode === 'move' ? { x, y } : { x, y, w, h });
-        if (mode === 'move' && (model.stackId || model.type === 'event')) floating.add(model.id);
+        if (moving && timeline && model.type === 'event') {
+          const offset = (before.timelineOffset ?? (before.axisY ? 24 : 0)) + y - before.y;
+          const coords = { timelineOffset: point(offset) };
+          if (!before.axisY && Math.abs(x - before.x) > 1) {
+            const peers = original.elements.filter(item => item.type === 'event' && !item.axisY && item.id !== model.id)
+              .sort((a, b) => a.x - b.x);
+            const following = peers.findIndex(item => x < item.x);
+            const previous = peers.findIndex(item => before.x < item.x);
+            if (following !== previous) {
+              const next = following < 0 ? undefined : peers[following];
+              const prior = following < 0 ? peers.at(-1) : peers[following - 1];
+              const lo = getElement(prior?.id)?.x, hi = getElement(next?.id)?.x;
+              coords.x = point(lo === undefined ? hi - 1 : hi === undefined ? lo + 1 : (lo + hi) / 2);
+            }
+          }
+          geometry.set(model.id, coords);
+        } else {
+          geometry.set(model.id, moving ? { x, y } : { x, y, w, h });
+          if (moving && model.stackId) floating.add(model.id);
+        }
       }
-      const eligible = mode === 'move' && original.elements.some(model => geometry.has(model.id) && canStack(model));
-      const target = eligible && [...original.elements].reverse().find(model => model.type === 'stack' && canMove(model.id) &&
-        !geometry.has(model.id) && position.x >= model.x && position.x <= model.x + model.w &&
-        position.y >= model.y && position.y <= model.y + model.h);
+      const excluded = moving && !timeline ? stackFamily(getBoard().elements, geometry.keys()) : new Set();
+      const target = excluded.size && [...original.elements].reverse().find(model => model.type === 'stack' && !excluded.has(model.id) && canMove(model.id) &&
+        position.x >= model.x && position.x <= model.x + model.w && position.y >= model.y && position.y <= model.y + model.h);
       draft = { id: original.id, geometry, floating, target, position, mode, displayed: original.elements };
       guides = nextGuides;
       paint();
     },
     commitDraft() {
       const base = getBoard(), preview = draft;
+      if (preview?.id !== base.id) return;
       let next = draftBoard();
-      if (preview?.id === base.id) {
-        if (preview.mode === 'move') {
-          let elements = placeInStack(next.elements, new Set(preview.geometry.keys()), preview.target, preview.position, preview.displayed);
-          if (base.kind === 'timeline') elements = elements.map(model =>
-            model.type === 'event' && preview.geometry.has(model.id) ? moveTimelineEvent(model, preview.displayed) : model);
-          next = { ...next, elements };
-        } else {
-          // Stack and timeline layout controls the visible position of their contents.
-          const originals = new Map(base.elements.map(model => [model.id, model]));
-          next = { ...next, elements: next.elements.map(model => {
-            const old = originals.get(model.id);
-            return model !== old && (model.stackId || model.type === 'event') ? { ...model, x: old.x, y: old.y } : model;
-          }) };
-        }
+      if (preview.mode === 'move' && base.kind !== 'timeline') {
+        next = { ...next, elements: placeInStack(next.elements, new Set(preview.geometry.keys()), preview.target, preview.position, preview.displayed) };
+      } else if (preview.mode !== 'move') {
+        const originals = new Map(base.elements.map(model => [model.id, model]));
+        next = { ...next, elements: next.elements.map(model => {
+          const old = originals.get(model.id);
+          return model !== old && (model.stackId || model.type === 'event') ? { ...model, x: old.x, y: old.y } : model;
+        }) };
       }
       clearDraft();
       commitBoard(next);
@@ -541,8 +565,12 @@ async function start() {
     const target = elementIndex(project).get(key);
     if (!target) return;
     navigate(target.board.id);
-    const container = getElement(target.model.stackId);
-    if (container && !stackOpen(container) && canEdit(container.id)) toggleStack(container.id);
+    const closed = new Set(stackAncestors(getBoard().elements, key)
+      .filter(container => !stackOpen(container) && canEdit(container.id)).map(container => container.id));
+    if (closed.size) {
+      const board = getBoard();
+      commitBoard({ ...board, elements: board.elements.map(model => closed.has(model.id) ? { ...model, expanded: true } : model) });
+    }
     const shown = presentBoard(getBoard()).elements.find(model => model.id === key);
     if (!shown) return report(new Error('Show the original layer or expand its stack to see this element.'));
     const view = getView(), focus = center();
@@ -555,7 +583,7 @@ async function start() {
     if (elementIndex(project).has(key)) insert('reference', { ...centerWorld(), fromCenter: true }, { targetId: key });
   }, { crossCanvas: true });
   Object.assign(api, {
-    goTo, toggleStack,
+    goTo, toggleStack, board: getBoard, updateEventSchedule,
     layers: () => boardLayers(getBoard()),
     moveToLayer(key, target) {
       const layer = boardLayers(getBoard()).find(item => item.id === target);
@@ -564,6 +592,45 @@ async function start() {
     linkElement(key) {
       chooseTarget('Link an Element', targetId => patch(key, { targetId }, true), { exclude: key });
     },
+  });
+  function withTimelineView(source, view) {
+    const { active, byBoard } = source.view;
+    return { ...source, view: { active, byBoard: { ...byBoard, [active]: view } } };
+  }
+  function scaledView(ratio) {
+    const view = getView(), focus = center().x;
+    const origin = view.x + TIMELINE_ORIGIN * view.zoom;
+    return { ...view, x: Math.max(-WORLD * 10, Math.min(WORLD * 10, focus - (focus - origin) * ratio - TIMELINE_ORIGIN * view.zoom)) };
+  }
+  function visibleEventView(source, key) {
+    const board = source.boards[source.view.active];
+    const view = source.view.byBoard[board.id] ?? viewDefault();
+    const projected = presentBoard(board).elements;
+    const model = key ? projected.find(item => item.id === key) : projected.find(item => item.type === 'event' && item.axisY);
+    if (!model) return view;
+    const x = view.x + (model.x + model.w / 2) * view.zoom;
+    const y = view.y + (model.y + model.h / 2) * view.zoom;
+    const visibleX = x >= 0 && x <= canvas.clientWidth, visibleY = y >= 0 && y <= canvas.clientHeight;
+    if (visibleX && visibleY) return view;
+    const focus = center();
+    return { ...view, x: visibleX ? view.x : view.x + focus.x - x, y: visibleY ? view.y : view.y + focus.y - y };
+  }
+  function prepareTimeline(source) {
+    const board = source.boards[source.view.active];
+    if (board.kind !== 'timeline' || board.timeline) return source;
+    return withTimelineView(updateBoard(source, { ...board, timeline: timelineSettings(board) }), visibleEventView(source));
+  }
+  function updateEventSchedule(key, changes, refresh = false) {
+    const board = getBoard(), model = getElement(key);
+    if (!canEdit(key) || Object.entries(changes).every(([field, value]) => model[field] === value)) return;
+    const next = updateBoard(project, { ...board, elements: board.elements.map(item => item.id === key ? { ...model, ...changes } : item) });
+    commit(withTimelineView(next, visibleEventView(next, key)), { inspector: refresh });
+  }
+  const syncTimelineControls = bindTimelineControls(getBoard, (timeline, grouped) => {
+    const board = getBoard();
+    const ratio = timeline.scale / timelineSettings(board).scale;
+    const next = updateBoard(project, { ...board, timeline });
+    commit(ratio === 1 ? next : withTimelineView(next, scaledView(ratio)), { grouped });
   });
   const floorEditor = bindFloorEditor({
     view: getView, setView, variables: () => project.variables,
@@ -899,7 +966,9 @@ async function start() {
 
   $('save-state').textContent = 'Saved locally';
   document.body.classList.remove('loading');
-  updateUI();
+  const prepared = prepareTimeline(project);
+  if (prepared === project) updateUI();
+  else assign(prepared);
   paint(true);
 }
 

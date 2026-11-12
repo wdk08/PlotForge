@@ -1,3 +1,5 @@
+import { eventMode } from './timeline.js';
+import { scheduleFields } from './timeline-controls.js';
 import { $, button, element, task } from './common.js';
 import { ACCENT, FONTS, LABEL, LISTS, SHAPES, STACK_LAYOUTS, WORKSPACES, clamp, id, layerId } from './model.js';
 
@@ -167,12 +169,11 @@ export function renderInspector(editor) {
         const value = chronology.valueAsNumber;
         const next = Number.isFinite(value) ? clamp(value, -1e9, 1e9) : null;
         chronology.value = next ?? '';
-        patch({ chronology: next });
+        editor.updateEventSchedule(model.id, { chronology: next });
       };
       fields.push(
-        input('Date', 'text', model.date, date => patch({ date: date.trim() }), { maxLength: 160, placeholder: 'YYYY-MM-DD or fictional date' }),
-        input('Time', 'text', model.time, time => patch({ time: time.trim() }), { maxLength: 40, placeholder: 'HH:MM' }),
-        field('Chronology', chronology),
+        scheduleFields(model, editor.board(), (changes, refresh) => editor.updateEventSchedule(model.id, changes, refresh)),
+        ...(eventMode(model) === 'fictional' || model.chronology !== null ? [field('Chronology', chronology)] : []),
         number('Duration (hours)', model.duration, 0, 1e7, duration => patch({ duration }), .25),
         field('Description', description),
       );

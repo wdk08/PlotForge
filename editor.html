@@ -72,6 +72,9 @@
   </div>
   <nav class="format-toolbar workspace-tools" id="timeline-tools" aria-label="Timeline tools" hidden>
     <span class="toolbar-label">TIMELINE</span><button id="timeline-event">Add Event</button>
+    <label class="plot-field">Timeline Scale <input id="timeline-scale" type="range" min="0.1" max="20" step="any" value="1"></label>
+    <label class="plot-field"><span class="sr-only">Exact timeline scale</span><input id="timeline-scale-value" type="number" min="0.1" max="20" step="any" value="1">×</label>
+    <button id="timeline-scale-reset">Reset Scale</button><button id="timeline-format">Date &amp; Time Format</button>
   </nav>
   <nav class="canvas-navigation" aria-label="Canvas path"><button id="back" class="quiet-button" hidden>← Back</button><ol id="breadcrumbs"></ol></nav>
   <div id="save-error" class="document-banner" hidden><span id="save-error-message"></span><button id="retry-save" class="secondary-button">Retry Save</button></div>
@@ -98,6 +101,14 @@
   <div id="context-menu" role="menu" hidden></div>
   <input id="media-file" type="file" hidden>
   <div id="notice" class="notice" role="alert" hidden></div>
+  <dialog id="timeline-format-dialog" aria-labelledby="timeline-format-heading">
+    <form method="dialog">
+      <h1 id="timeline-format-heading">Date &amp; Time Format</h1>
+      <div id="timeline-format-fields"></div>
+      <p>Preview <output id="timeline-format-preview" aria-live="polite"></output></p>
+      <div class="dialog-actions"><button class="quiet-button" value="cancel">Cancel</button><button class="primary-button" value="save">Save Format</button></div>
+    </form>
+  </dialog>
   <dialog id="map-type-dialog" aria-labelledby="map-type-title">
     <form method="dialog">
       <h1 id="map-type-title">New Map</h1>

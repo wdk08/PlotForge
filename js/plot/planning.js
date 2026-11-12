@@ -1,4 +1,6 @@
-import { boardLayers, layerId, point, WORKSPACES } from './model.js';
+import { boardLayers, layerId } from './model.js';
+import { stackFamily, stackTree, stackWalk } from './stack-tree.js';
+import { timelinePositions, timelineSettings } from './timeline.js';
 
 const indexes = new WeakMap();
 export function elementIndex(project) {
@@ -10,143 +12,99 @@ export function elementIndex(project) {
 }
 
 const accessors = new WeakMap();
-export function layerAccess(board) {
+function stackAccess(board) {
   if (accessors.has(board)) return accessors.get(board);
   const layers = new Map(boardLayers(board).map(layer => [layer.id, layer]));
-  const stacks = new Map(board.elements.filter(model => model.type === 'stack').map(model => [model.id, layers.get(layerId(model))]));
-  const access = model => {
-    const own = layers.get(layerId(model)), container = stacks.get(model.stackId);
-    return {
-      hidden: Boolean(own?.hidden || container?.hidden),
-      locked: Boolean(own?.locked || container?.locked || model.id === board.background),
-    };
-  };
+  const { roots, children } = stackTree(board.elements);
+  const entries = new Map(), lockedSubtrees = new Set();
+  const ordered = [...stackWalk(roots, children)];
+  for (const model of ordered) {
+    const own = layers.get(layerId(model)), parent = entries.get(model.stackId);
+    const entry = { hidden: Boolean(own?.hidden || parent?.hidden),
+      locked: Boolean(own?.locked || parent?.locked || model.id === board.background) };
+    entries.set(model.id, entry);
+    if (entry.locked) lockedSubtrees.add(model.id);
+  }
+  for (const model of ordered.reverse()) {
+    if (model.stackId && lockedSubtrees.has(model.id)) lockedSubtrees.add(model.stackId);
+  }
+  const access = { entries, lockedSubtrees };
   accessors.set(board, access);
   return access;
 }
+export const layerAccess = board => model => stackAccess(board).entries.get(model.id);
+export const lockedSubtree = (board, id) => stackAccess(board).lockedSubtrees.has(id);
 
-export const canStack = model => !WORKSPACES.includes(model.type) && !['stack', 'marker', 'event'].includes(model.type);
 export const stackOpen = model => model.layout !== 'collapsed' || model.expanded;
-const stackPadding = 14, stackHeader = 43, gap = 12;
-const step = 246, timelineStart = 70;
-const datePattern = /^\d{4}-\d{2}-\d{2}$/;
-const timePattern = /^([01]\d|2[0-3]):[0-5]\d$/;
+const padding = 14, header = 43, gap = 12;
 
-export function eventChronology(event) {
-  if (event.chronology !== null) return event.chronology;
-  if (!datePattern.test(event.date)) return null;
-  const time = timePattern.test(event.time) ? event.time : '00:00';
-  const parsed = new Date(`${event.date}T${time}:00Z`);
-  return Number.isFinite(parsed.valueOf()) && parsed.toISOString().slice(0, 10) === event.date ? parsed.valueOf() / 86400000 : null;
-}
-
-function timelineGeometry(elements) {
-  const dated = [], undated = [];
-  for (const model of elements) {
-    if (model.type !== 'event') continue;
-    const day = eventChronology(model);
-    (day === null ? undated : dated).push({ model, day });
-  }
-  dated.sort((a, b) => a.day - b.day || a.model.x - b.model.x);
-  undated.sort((a, b) => a.model.x - b.model.x);
-  const positions = new Map();
-  const positionRow = (row, y) => {
-    let x = timelineStart, previous;
-    for (const { model, day } of row) {
-      if (previous) x += Math.max(step, previous.model.w + 24) + (day === null ? 0 : Math.min(460, Math.log1p(Math.max(0, day - previous.day)) * 62));
-      positions.set(model.id, { ...model, x: point(x), y });
-      previous = { model, day };
-    }
-  };
-  positionRow(dated, 95);
-  positionRow(undated, 120 + dated.reduce((height, { model }) => Math.max(height, model.h), 166));
-  return positions;
-}
-
-export function moveTimelineEvent(model, peers) {
-  const day = eventChronology(model);
-  if (day === null) return model;
-  const others = peers.filter(item => item.type === 'event' && item.id !== model.id && eventChronology(item) !== null)
-    .sort((a, b) => a.x - b.x);
-  if (!others.length) return model;
-  const old = peers.find(item => item.id === model.id);
-  const center = model.x + model.w / 2;
-  const nextIndex = others.findIndex(item => center < item.x + item.w / 2);
-  const previousIndex = others.findIndex(item => old.x < item.x);
-  if (nextIndex === previousIndex) return model;
-  const before = nextIndex === -1 ? others.at(-1) : others[nextIndex - 1];
-  const after = nextIndex === -1 ? undefined : others[nextIndex];
-  const low = before && eventChronology(before), high = after && eventChronology(after);
-  const chronology = before && after ? (low + high) / 2 : before ? low + 1 : high - 1;
-  if (model.chronology === null && datePattern.test(model.date)) {
-    const stamp = new Date(Math.round(chronology * 1440) * 60000);
-    if (Number.isFinite(stamp.valueOf()) && stamp.getUTCFullYear() >= 0 && stamp.getUTCFullYear() <= 9999) {
-      const iso = stamp.toISOString();
-      return { ...model, date: iso.slice(0, 10), time: iso.slice(11, 16) };
+function stackGeometry(ordered, children) {
+  const shapes = new Map(), offsets = new Map();
+  for (let index = ordered.length - 1; index >= 0; index--) {
+    const model = ordered[index];
+    if (model.type !== 'stack') continue;
+    const members = children.get(model.id) ?? [];
+    const shape = { ...model, count: members.length };
+    shapes.set(model.id, shape);
+    if (!stackOpen(model)) continue;
+    const layout = model.layout === 'collapsed' ? 'vertical' : model.layout;
+    let x = padding, y = header, row = 0;
+    for (const child of members) {
+      const { w, h } = shapes.get(child.id) ?? child;
+      if (layout === 'grid' && row && x + w > model.w - padding) {
+        x = padding;
+        y += row + gap;
+        row = 0;
+      }
+      offsets.set(child.id, { x, y });
+      shape.w = Math.max(shape.w, x + w + padding);
+      shape.h = Math.max(shape.h, y + h + padding);
+      if (layout === 'vertical') y += h + gap;
+      else { x += w + gap; row = Math.max(row, h); }
     }
   }
-  return { ...model, chronology: Math.max(-1e9, Math.min(1e9, chronology)) };
+  return { shapes, offsets };
 }
 
 const presentations = new WeakMap();
 export function presentBoard(board, floating) {
-  if (!floating && presentations.has(board)) return presentations.get(board);
+  if (!floating?.size && presentations.has(board)) return presentations.get(board);
   const access = layerAccess(board), layers = boardLayers(board);
   const order = new Map(layers.map((layer, index) => [layer.id, index]));
-  const children = new Map(), projected = new Map(), anchors = new Map(), byId = new Map(board.elements.map(model => [model.id, model]));
   const visible = board.elements.filter(model => !access(model).hidden);
-  for (const model of visible) {
-    if (!model.stackId || floating?.has(model.id)) continue;
-    if (!children.has(model.stackId)) children.set(model.stackId, []);
-    children.get(model.stackId).push(model);
-  }
-  for (const model of visible) {
-    if (model.type !== 'stack') continue;
-    const members = children.get(model.id) ?? [];
-    const open = stackOpen(model);
-    if (!open) {
-      projected.set(model.id, { ...model, count: members.length });
-      for (const child of members) anchors.set(child.id, model.id);
+  const { roots, children } = stackTree(floating?.size ? visible.map(model =>
+    floating.has(model.id) ? { ...model, stackId: undefined } : model) : visible);
+  const z = model => model.id === board.background ? -1 : order.get(layerId(model));
+  const ordered = [...stackWalk([...roots].sort((a, b) => z(a) - z(b)), children)];
+  const { shapes, offsets } = stackGeometry(ordered, children);
+  const timeline = board.kind === 'timeline' ? timelinePositions(visible, timelineSettings(board)) : null;
+  const elements = [], displayed = new Map(), anchors = new Map();
+  for (const model of ordered) {
+    const parent = displayed.get(model.stackId);
+    const anchor = anchors.get(model.stackId) ?? (parent?.type === 'stack' && !stackOpen(parent) ? parent.id : undefined);
+    if (anchor) {
+      anchors.set(model.id, anchor);
       continue;
     }
-    const layout = model.layout === 'collapsed' ? 'vertical' : model.layout;
-    let x = model.x + stackPadding, y = model.y + stackHeader, row = 0;
-    let right = x, bottom = y;
-    for (const child of members) {
-      if (layout === 'grid' && row && x + child.w > model.x + model.w - stackPadding) {
-        x = model.x + stackPadding;
-        y += row + gap;
-        row = 0;
-      }
-      projected.set(child.id, { ...child, x: point(x), y: point(y) });
-      right = Math.max(right, x + child.w);
-      bottom = Math.max(bottom, y + child.h);
-      if (layout === 'vertical') y += child.h + gap;
-      else { x += child.w + gap; row = Math.max(row, child.h); }
-    }
-    projected.set(model.id, { ...model, w: Math.max(model.w, right - model.x + stackPadding),
-      h: Math.max(model.h, bottom - model.y + stackPadding), count: members.length });
+    const shape = shapes.get(model.id) ?? timeline?.get(model.id) ?? model;
+    const offset = offsets.get(model.id);
+    const item = offset ? { ...shape, x: parent.x + offset.x, y: parent.y + offset.y } : shape;
+    displayed.set(model.id, item);
+    elements.push(item);
   }
-  const timeline = board.kind === 'timeline' ? timelineGeometry(visible) : null;
-  const z = model => order.get(layerId(byId.get(model.stackId) ?? model));
-  const elements = visible.filter(model => !anchors.has(model.id))
-    .sort((a, b) => a.id === board.background ? -1 : b.id === board.background ? 1 :
-      z(a) - z(b) || Boolean(a.stackId) - Boolean(b.stackId))
-    .map(model => floating?.has(model.id) ? model : projected.get(model.id) ?? timeline?.get(model.id) ?? model);
-  const shown = new Set(elements.map(model => model.id));
   const connections = board.connections.flatMap(link => {
     const from = anchors.get(link.from) ?? link.from, to = anchors.get(link.to) ?? link.to;
-    if (from === to || !shown.has(from) || !shown.has(to)) return [];
+    if (from === to || !displayed.has(from) || !displayed.has(to)) return [];
     return [from === link.from && to === link.to ? link : { ...link, from, to }];
   });
   const result = { ...board, elements, connections };
-  if (!floating) presentations.set(board, result);
+  if (!floating?.size) presentations.set(board, result);
   return result;
 }
 
 export function placeInStack(elements, moved, target, position, displayed) {
-  const moving = elements.filter(model => moved.has(model.id) && canStack(model));
-  if (!moving.length) return elements;
+  const moving = elements.filter(model => moved.has(model.id));
+  if (!moving.length || target && stackFamily(elements, moved).has(target.id)) return elements;
   if (!target) return elements.map(model => moved.has(model.id) && model.stackId ? { ...model, stackId: undefined } : model);
   const horizontal = target.layout === 'horizontal';
   const grid = target.layout === 'grid';
@@ -154,9 +112,7 @@ export function placeInStack(elements, moved, target, position, displayed) {
     (horizontal ? position.x < model.x + model.w / 2 :
       grid ? position.y < model.y || position.y < model.y + model.h && position.x < model.x + model.w / 2 :
       position.y < model.y + model.h / 2));
-  const movingIds = new Set(moving.map(model => model.id));
-  const next = elements.filter(model => !movingIds.has(model.id));
-  next.splice(before ? next.findIndex(model => model.id === before.id) : next.length, 0,
-    ...moving.map(model => ({ ...model, stackId: target.id })));
-  return next;
+  const next = elements.filter(model => !moved.has(model.id));
+  const index = before ? next.findIndex(model => model.id === before.id) : next.length;
+  return [...next.slice(0, index), ...moving.map(model => ({ ...model, stackId: target.id })), ...next.slice(index)];
 }

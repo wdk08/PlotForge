@@ -27,7 +27,7 @@ export function renameVariable(project, oldKey, key, value) {
     })) } }),
     elements: board.elements.map(model => {
       const result = { ...model };
-      for (const field of ['title', 'description', 'date', 'time']) if (typeof model[field] === 'string') result[field] = rename(model[field]);
+      for (const field of ['title', 'description', 'date', 'time', 'endDate', 'endTime']) if (typeof model[field] === 'string') result[field] = rename(model[field]);
       if (model.html) result.html = transformHTML(model.html, rename);
       if (model.items) result.items = model.items.map(item => ({ ...item, text: rename(item.text) }));
       return result;

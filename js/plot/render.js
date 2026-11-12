@@ -1,3 +1,4 @@
+import { eventSchedule, timelineAxes, timelineSettings } from './timeline.js';
 import { $, element, button } from './common.js';
 import { ICON, LABEL, MEDIA_TYPES, WORKSPACES } from './model.js';
 import { bounds, endpoints, intersects, viewportBounds } from './geometry.js';
@@ -202,9 +203,13 @@ function contents(node, model, project, callbacks, exporting, readOnly = false) 
     const heading = element('strong', 'element-title', resolve(model.title));
     node.append(heading);
     if (model.type === 'event') {
-      const when = [resolve(model.date), resolve(model.time)].filter(Boolean).join(' · ') ||
-        (model.chronology === null ? 'Undated' : `Position ${model.chronology}`);
-      node.append(element('small', 'planning-date', model.duration ? `${when} · ${model.duration}h` : when));
+      const owner = elementIndex(project).get(model.id)?.board;
+      const when = eventSchedule(model, timelineSettings(owner), resolve);
+      const details = model.duration ? `${when} · ${model.duration}h` : when;
+      const schedule = element('small', 'planning-date', details);
+      schedule.title = details;
+      node.title = details;
+      node.append(schedule);
       if (model.description) node.append(element('p', 'planning-description', resolve(model.description)));
     }
     const target = model.targetId && elementIndex(project).get(model.targetId);
@@ -306,19 +311,20 @@ export function createCanvasRenderer(callbacks) {
       const linked = model.targetId && elementIndex(project).get(model.targetId)?.model;
       const asset = model.asset ?? source?.asset;
       const child = project.boards[model.boardId];
+      const eventFormat = model.type === 'event' || source?.type === 'event' ? elementIndex(project).get(source?.id ?? model.id)?.board.timeline : undefined;
       if (!entry) {
         if (asset) callbacks.retain(asset);
-        entry = { node: makeCard(model, project, callbacks), model, source, linked, asset, child, variables: project.variables };
+        entry = { node: makeCard(model, project, callbacks), model, source, linked, asset, child, eventFormat, variables: project.variables };
         nodes.set(model.id, entry);
       } else {
-        const refresh = entry.source !== source || entry.variables !== project.variables || entry.linked !== linked || entry.child !== child;
+        const refresh = entry.source !== source || entry.variables !== project.variables || entry.linked !== linked || entry.child !== child || entry.eventFormat !== eventFormat;
         if (model !== entry.model || refresh) {
           if (asset !== entry.asset || refresh && model.type === 'reference' && asset) {
             unload(entry);
             if (asset) callbacks.retain(asset);
           }
           reviseCard(entry.node, entry.model, model, project, callbacks, editing === model.id, refresh);
-          Object.assign(entry, { model, source, linked, asset, child, variables: project.variables });
+          Object.assign(entry, { model, source, linked, asset, child, eventFormat, variables: project.variables });
         }
       }
       const node = entry.node;
@@ -355,13 +361,25 @@ export function createCanvasRenderer(callbacks) {
     const screen = pos => ({ x: pos.x * view.zoom + view.x, y: pos.y * view.zoom + view.y });
     const connectionNodes = document.createDocumentFragment();
     if (board.kind === 'timeline') {
-      const axis = screen({ x: 0, y: 74 });
-      connectionNodes.append(svg('line', { x1: 0, y1: axis.y, x2: width, y2: axis.y, class: 'timeline-axis' }));
-      for (const model of board.elements) {
-        if (model.type !== 'event' || model.y !== 95) continue;
-        const x = screen({ x: model.x + 12, y: 0 }).x;
-        if (x < 0 || x > width) continue;
-        connectionNodes.append(svg('circle', { cx: x, cy: axis.y, r: 4, class: 'timeline-tick' }));
+      const left = -view.x / view.zoom, right = (width - view.x) / view.zoom;
+      for (const axis of timelineAxes(board.elements, timelineSettings(board), left, right, view.zoom)) {
+        const y = screen({ x: 0, y: axis.y }).y;
+        connectionNodes.append(svg('line', { x1: 0, y1: y, x2: width, y2: y, class: 'timeline-axis', 'data-timeline-axis': axis.lane }));
+        for (const item of axis.items) {
+          const x = screen({ x: item.axisX, y: 0 }).x;
+          if (x < 0 || x > width) continue;
+          const edge = Math.max(item.y, Math.min(item.y + item.h, axis.y));
+          connectionNodes.append(svg('line', { x1: x, y1: y, x2: x, y2: screen({ x: 0, y: edge }).y,
+            class: 'timeline-connector', 'data-event-connector': item.id }));
+          connectionNodes.append(svg('circle', { cx: x, cy: y, r: 3, class: 'timeline-tick' }));
+        }
+        for (const tick of axis.ticks) {
+          const x = screen({ x: tick.x, y: 0 }).x;
+          connectionNodes.append(svg('line', { x1: x, y1: y - 4, x2: x, y2: y + 4, class: 'timeline-axis' }));
+          const label = svg('text', { x, y: y - 9, class: 'timeline-axis-label' });
+          label.textContent = tick.label;
+          connectionNodes.append(label);
+        }
       }
     }
     for (const link of board.connections) {
