@@ -3,7 +3,7 @@ import { webcrypto } from 'node:crypto';
 import test from 'node:test';
 import { IDBFactory } from 'fake-indexeddb';
 import {
-  connect, createProject, extractSelection, id, insertElement, insertSelection, layer, makeElement,
+  boardLayers, connect, createProject, extractSelection, id, insertElement, insertSelection, layer, makeElement,
   removeSelection, statistics, updateBoard, validateProject,
 } from '../../js/plot/model.js';
 import { boardBounds, endpoints, fitView, resizeElement, snapMove, worldAt, zoomAt } from '../../js/plot/geometry.js';
@@ -12,6 +12,7 @@ import { decodeProject, encodeProject, importProject } from '../../js/plot/forma
 import { createRepository } from '../../js/plot/browser-store.js';
 import { createRecord, recordFor, snapshot } from '../../js/plot/storage.js';
 import { autosave } from '../../js/plot/autosave.js';
+import { resolveText } from '../../js/plot/variables.js';
 
 globalThis.crypto ??= webcrypto;
 function add(project, board, type, options) {
@@ -191,4 +192,41 @@ test('empty media cards round-trip without generating assets', async () => {
   const corrupted = structuredClone(project);
   corrupted.boards[nested.boardId].elements[0].name = 'unbound.png';
   assert.throws(() => validateProject(corrupted), /Invalid media element/);
+});
+
+test('planning data and map media survive a .plf round trip without connecting separate projects', async () => {
+  const store = createRepository(new IDBFactory());
+  let project = createProject('Story');
+  let stack, map, timeline, note, marker, event, background;
+  [project, stack] = add(project, project.root, 'stack', { title: '{lead}', layout: 'grid' });
+  [project, map] = add(project, project.root, 'map');
+  [project, timeline] = add(project, project.root, 'timeline');
+  [project, note] = add(project, project.root, 'note', { html: '<b>{lead}</b>', stackId: stack.id });
+  [project, marker] = add(project, map.boardId, 'marker', { title: 'Harbor', targetId: note.id });
+  [project, event] = add(project, timeline.boardId, 'event', {
+    title: '{lead} arrives', date: 'First Moon', time: 'Dusk', duration: 5, chronology: 12, targetId: note.id,
+  });
+  const places = { id: id(), title: 'Places', hidden: false, locked: true };
+  const asset = id();
+  await store.putAsset(asset, new Blob([new Uint8Array([0, 255, 41])], { type: 'image/png' }));
+  [project, background] = add(project, map.boardId, 'image', { name: 'Map', mime: 'image/png', asset });
+  const mapBoard = project.boards[map.boardId];
+  project = updateBoard(project, { ...mapBoard, background: background.id, layers: [...boardLayers(mapBoard), places] });
+  let reference;
+  [project, reference] = add(project, project.root, 'reference', { targetId: event.id, stackId: stack.id });
+  const root = connect(project.boards[project.root], note.id, timeline.id);
+  root.connections[0].label = { text: '{lead}', color: '#123456', size: 18, hidden: false };
+  project = { ...updateBoard(project, root), variables: { lead: 'Sophia' } };
+  const file = await encodeProject(project, store.getAsset);
+  const decoded = await decodeProject(file);
+  assert.deepEqual(decoded.project, project);
+  assert.deepEqual(new Uint8Array(await decoded.assets.get(asset).arrayBuffer()), new Uint8Array([0, 255, 41]));
+  assert.equal(boardLayers(root)[0].id, 'default');
+  assert.equal(resolveText(root.connections[0].label.text, decoded.project.variables), 'Sophia');
+  assert.equal(decoded.project.boards[map.boardId].elements[0].targetId, marker.targetId);
+  const selection = extractSelection(project, project.root, new Set([reference.id]));
+  const other = createProject();
+  const pasted = insertSelection(other, other.root, selection, 20, 20).project;
+  assert.notEqual(pasted.boards[other.root].elements[0].targetId, event.id);
+  assert.doesNotThrow(() => validateProject(pasted));
 });

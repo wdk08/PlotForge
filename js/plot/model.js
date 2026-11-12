@@ -1,8 +1,13 @@
+import { FLOOR_ITEMS, FLOOR_UNITS, PLAN_LIMIT } from './floor-model.js';
+
 export const SCHEMA = 1;
 export const ACCENT = '#B58A35';
 export const WORLD = 10_000_000;
 export const MEDIA_TYPES = ['image', 'audio', 'video'];
-export const TYPES = ['text', 'note', 'list', 'image', 'audio', 'video', 'shape', 'canvas'];
+export const WORKSPACES = ['canvas', 'map', 'timeline'];
+export const STACK_LAYOUTS = ['collapsed', 'vertical', 'horizontal', 'grid'];
+export const DEFAULT_LAYER = { id: 'default', title: 'Default', hidden: false, locked: false };
+export const TYPES = ['text', 'note', 'list', ...MEDIA_TYPES, 'shape', ...WORKSPACES, 'stack', 'reference', 'marker', 'event'];
 export const SHAPES = ['rectangle', 'rounded', 'ellipse', 'line', 'arrow'];
 export const LISTS = ['bullets', 'numbers', 'checklist'];
 export const FONTS = ['System', 'Georgia', 'Arial', 'Courier New'];
@@ -22,15 +27,20 @@ export function createProject(title = 'Untitled Project') {
   };
 }
 
+export const boardLayers = board => board.layers ?? [DEFAULT_LAYER];
+export const layerId = model => model.layerId ?? DEFAULT_LAYER.id;
+
 export const SIZE = {
   text: [260, 150], note: [250, 200], list: [260, 200], image: [300, 200],
-  audio: [315, 110], video: [320, 205], shape: [160, 115], canvas: [220, 100],
+  audio: [315, 110], video: [320, 205], shape: [160, 115], canvas: [220, 100], stack: [400, 130], map: [220, 100], timeline: [220, 100],
+  reference: [250, 175], marker: [155, 58], event: [218, 166],
 };
 export const LABEL = {
   text: 'Text', note: 'Note', list: 'List', image: 'Image', audio: 'Audio', video: 'Video',
-  shape: 'Shape', canvas: 'Nested Canvas',
+  shape: 'Shape', canvas: 'Nested Canvas', stack: 'Stack', map: 'Map', timeline: 'Timeline',
+  reference: 'Reference', marker: 'Location', event: 'Event',
 };
-export const ICON = { text: 'T', note: '▤', list: '☷', image: '▧', audio: '♫', video: '▷', shape: '◇', canvas: '▦' };
+export const ICON = { text: 'T', note: '▤', list: '☷', image: '▧', audio: '♫', video: '▷', shape: '◇', canvas: '▦', stack: '▱', map: '⌖', timeline: '↦', reference: '↗', marker: '●', event: '◆' };
 
 export function makeElement(type, x, y, options = {}) {
   const [w, h] = SIZE[type];
@@ -41,7 +51,10 @@ export function makeElement(type, x, y, options = {}) {
   }
   if (type === 'list') Object.assign(element, { title: 'Untitled List', kind: 'checklist', items: [] });
   if (type === 'shape') Object.assign(element, { shape: 'rectangle', fill: ACCENT, stroke: '#83601e', weight: 2, opacity: 1, angle: 0 });
-  if (type === 'canvas') Object.assign(element, { title: 'Untitled Canvas', boardId: id() });
+  if (WORKSPACES.includes(type)) Object.assign(element, { title: `Untitled ${type === 'canvas' ? 'Canvas' : LABEL[type]}`, boardId: id() });
+  if (type === 'stack') Object.assign(element, { title: 'Untitled Stack', layout: 'collapsed', expanded: false });
+  if (type === 'marker') Object.assign(element, { title: 'Location', color: ACCENT });
+  if (type === 'event') Object.assign(element, { title: 'Untitled Event', description: '', date: '', time: '', duration: 0, chronology: null, color: ACCENT });
   return { ...element, ...options };
 }
 
@@ -49,10 +62,15 @@ export function updateBoard(project, board) {
   return { ...project, boards: { ...project.boards, [board.id]: board } };
 }
 
-export function insertElement(project, boardId, element) {
+export function insertElement(project, boardId, element, plan) {
   const board = project.boards[boardId];
   const next = updateBoard(project, { ...board, elements: [...board.elements, element] });
-  if (element.type === 'canvas') next.boards[element.boardId] = { id: element.boardId, elements: [], connections: [] };
+  if (WORKSPACES.includes(element.type)) {
+    const child = { id: element.boardId, elements: [], connections: [] };
+    if (element.type !== 'canvas') child.kind = element.type;
+    if (element.type === 'map' && plan) child.plan = plan;
+    next.boards[element.boardId] = child;
+  }
   return next;
 }
 
@@ -64,7 +82,7 @@ export function* descendants(boards, roots) {
     yield board;
     for (let i = board.elements.length - 1; i >= 0; i--) {
       const element = board.elements[i];
-      if (element.type === 'canvas') pending.push(element.boardId);
+      if (WORKSPACES.includes(element.type)) pending.push(element.boardId);
     }
   }
 }
@@ -72,7 +90,7 @@ export function* descendants(boards, roots) {
 export function parents(project) {
   const map = new Map();
   for (const board of Object.values(project.boards)) {
-    for (const element of board.elements) if (element.type === 'canvas') map.set(element.boardId, { board: board.id, element });
+    for (const element of board.elements) if (WORKSPACES.includes(element.type)) map.set(element.boardId, { board: board.id, element });
   }
   return map;
 }
@@ -91,10 +109,12 @@ export function removeSelection(project, boardId, ids, connectionId) {
   const removed = board.elements.filter(element => ids.has(element.id));
   const next = updateBoard(project, {
     ...board,
-    elements: board.elements.filter(element => !ids.has(element.id)),
+    background: ids.has(board.background) ? undefined : board.background,
+    elements: board.elements.filter(element => !ids.has(element.id)).map(element =>
+      ids.has(element.stackId) ? { ...element, stackId: undefined } : element),
     connections: board.connections.filter(connection => connection.id !== connectionId && !ids.has(connection.from) && !ids.has(connection.to)),
   });
-  for (const child of descendants(project.boards, removed.filter(element => element.type === 'canvas').map(element => element.boardId))) {
+  for (const child of descendants(project.boards, removed.filter(element => WORKSPACES.includes(element.type)).map(element => element.boardId))) {
     delete next.boards[child.id];
   }
   return next;
@@ -120,38 +140,53 @@ export function connect(board, from, to) {
 
 export function extractSelection(project, boardId, ids) {
   const board = project.boards[boardId];
-  const elements = board.elements.filter(element => ids.has(element.id));
+  ids = new Set(ids);
+  for (const element of board.elements) if (ids.has(element.stackId)) ids.add(element.id);
+  const elements = board.elements.filter(element => ids.has(element.id)).map(element =>
+    element.stackId && !ids.has(element.stackId) ? { ...element, stackId: undefined } : element);
   const connections = board.connections.filter(connection => ids.has(connection.from) && ids.has(connection.to));
-  const children = [...descendants(project.boards, elements.filter(element => element.type === 'canvas').map(element => element.boardId))];
+  const children = [...descendants(project.boards, elements.filter(element => WORKSPACES.includes(element.type)).map(element => element.boardId))];
   const boards = Object.fromEntries(children.map(child => [child.id, child]));
   const views = Object.fromEntries(children.filter(child => project.view.byBoard[child.id]).map(child => [child.id, project.view.byBoard[child.id]]));
-  return { elements, connections, boards, views };
+  return { elements, connections, boards, views, layers: board.layers, projectId: project.id };
 }
 
 export function insertSelection(project, boardId, fragment, dx, dy) {
   const board = project.boards[boardId];
+  const available = boardLayers(board).filter(layer => !layer.hidden && !layer.locked);
+  const defaultDestination = available.find(layer => layer.id === 'default')?.id ?? available[0]?.id ?? 'default';
   const boardIds = new Map(Object.keys(fragment.boards).map(key => [key, id()]));
-  const cloneContent = (source, offsetX, offsetY) => {
-    const ids = new Map();
+  const elementIds = new Map([fragment, ...Object.values(fragment.boards)].flatMap(source =>
+    source.elements.map(element => [element.id, id()])));
+  const cloneContent = (source, offsetX, offsetY, root = false) => {
+    const localIds = new Set(source.elements.map(element => element.id));
+    const layerIds = new Map(boardLayers(source).filter(layer => layer.id !== 'default').map(layer => [layer.id, id()]));
     const elements = source.elements.map(element => {
-      const key = id();
-      ids.set(element.id, key);
-      const copy = { ...element, id: key, x: point(element.x + offsetX), y: point(element.y + offsetY) };
-      if (copy.type === 'canvas') copy.boardId = boardIds.get(copy.boardId);
+      const copy = { ...element, id: elementIds.get(element.id), x: point(element.x + offsetX), y: point(element.y + offsetY) };
+      if (WORKSPACES.includes(copy.type)) copy.boardId = boardIds.get(copy.boardId);
       if (copy.type === 'list') copy.items = copy.items.map(item => ({ ...item, id: id() }));
+      if (copy.stackId) copy.stackId = localIds.has(copy.stackId) ? elementIds.get(copy.stackId) : undefined;
+      if (root) {
+        const destination = fragment.projectId === project.id && available.some(layer => layer.id === layerId(copy))
+          ? layerId(copy) : defaultDestination;
+        copy.layerId = destination === 'default' ? undefined : destination;
+      } else if (copy.layerId && copy.layerId !== 'default') copy.layerId = layerIds.get(copy.layerId);
+      if (copy.targetId) copy.targetId = elementIds.get(copy.targetId) ?? (fragment.projectId === project.id ? copy.targetId : id());
       return copy;
     });
-    const connections = source.connections.map(link => ({ ...link, id: id(), from: ids.get(link.from), to: ids.get(link.to) }));
-    return { elements, connections };
+    const connections = source.connections.map(link => ({ ...link, id: id(), from: elementIds.get(link.from), to: elementIds.get(link.to) }));
+    const layers = source.layers?.map(layer => ({ ...layer, id: layerIds.get(layer.id) ?? 'default' }));
+    return { elements, connections, layers, background: elementIds.get(source.background) };
   };
-  const content = cloneContent(fragment, dx, dy);
+  const content = cloneContent(fragment, dx, dy, true);
   const next = updateBoard(project, {
     ...board, elements: [...board.elements, ...content.elements], connections: [...board.connections, ...content.connections],
   });
   const byBoard = { ...project.view.byBoard };
   for (const child of Object.values(fragment.boards)) {
     const key = boardIds.get(child.id);
-    next.boards[key] = { id: key, ...cloneContent(child, 0, 0) };
+    next.boards[key] = { id: key, kind: child.kind, ...cloneContent(child, 0, 0) };
+    if (child.plan) next.boards[key].plan = structuredClone(child.plan);
     if (fragment.views[child.id]) byBoard[key] = fragment.views[child.id];
   }
   return { project: { ...next, view: { ...next.view, byBoard } }, ids: new Set(content.elements.map(element => element.id)) };
@@ -177,6 +212,8 @@ export function statistics(project) {
   return result;
 }
 
+export const VARIABLE_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
+
 const fail = message => { throw new Error(message); };
 const number = (value, min, max) => typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max;
 const string = (value, max) => typeof value === 'string' && value.length <= max;
@@ -184,11 +221,55 @@ const object = value => value && typeof value === 'object' && !Array.isArray(val
 const flag = value => typeof value === 'boolean';
 const optionalColor = value => value === undefined || validColor(value);
 
+function validateFloorPlan(plan) {
+  if (!object(plan) || !Object.hasOwn(FLOOR_UNITS, plan.unit) || !['blueprint', 'furnished'].includes(plan.style) ||
+      ![plan.grid, plan.snap, plan.wallSnap].every(flag) || !number(plan.spacing, 1, 5000) ||
+      !Array.isArray(plan.floors) || plan.floors.length < 1 || plan.floors.length > 100) fail('Invalid floor plan.');
+  const floors = new Set();
+  const coord = value => number(value, -PLAN_LIMIT, PLAN_LIMIT);
+  for (const floor of plan.floors) {
+    if (!object(floor) || !isId(floor.id) || floors.has(floor.id) || !string(floor.name, 160) || !floor.name.trim() ||
+      !object(floor.points) || !Array.isArray(floor.objects)) fail('Invalid floor.');
+    floors.add(floor.id);
+    const points = floor.points;
+    for (const [id, p] of Object.entries(points)) {
+      if (!isId(id) || !object(p) || !coord(p.x) || !coord(p.y)) fail('Invalid floor point.');
+    }
+    const ids = new Set(), walls = new Set(), openings = [];
+    const vertex = id => isId(id) && Object.hasOwn(points, id);
+    for (const item of floor.objects) {
+      if (!object(item) || !isId(item.id) || ids.has(item.id)) fail('Invalid floor object.');
+      ids.add(item.id);
+      if (item.type === 'wall') {
+        if (!vertex(item.a) || !vertex(item.b) || Math.hypot(points[item.a].x - points[item.b].x, points[item.a].y - points[item.b].y) < 1 ||
+          !number(item.thickness, 1, 500)) fail('Invalid wall.');
+        walls.add(item.id);
+      } else if (item.type === 'room') {
+        if (!Array.isArray(item.vertices) || item.vertices.length < 3 || new Set(item.vertices).size !== item.vertices.length ||
+          !item.vertices.every(vertex) || !string(item.name, 160) || !validColor(item.color) ||
+          !['plain', 'wood', 'tile'].includes(item.surface)) fail('Invalid room.');
+      } else {
+        if (!Object.hasOwn(FLOOR_ITEMS, item.type) || !Object.hasOwn(FLOOR_ITEMS[item.type], item.variant)) fail('Invalid floor object type.');
+        if (item.type === 'door' || item.type === 'window') {
+          if (!number(item.at, 0, 1) || !number(item.width, 1, 5000) ||
+            !['left-in', 'right-in', 'left-out', 'right-out'].includes(item.swing)) fail('Invalid opening.');
+          openings.push(item);
+        } else if (!coord(item.x) || !coord(item.y) || !number(item.w, 1, PLAN_LIMIT) || !number(item.h, 1, PLAN_LIMIT) ||
+          !number(item.angle, -360, 360) || !string(item.name, 160) || !validColor(item.color)) fail('Invalid floor object geometry.');
+      }
+    }
+    if (openings.some(item => !walls.has(item.wall))) fail('A floor opening is missing its wall.');
+  }
+  if (!floors.has(plan.active)) fail('The selected floor is missing.');
+}
+
 export function validateProject(project) {
   if (!object(project) || project.schema !== SCHEMA) fail('This project schema is unsupported.');
   if (!isId(project.id) || !isId(project.root) || !string(project.title, 160) || !project.title.trim() ||
       !number(project.createdAt, 0, 8.64e15) || !object(project.boards) || !project.boards[project.root] ||
       !object(project.settings) || !flag(project.settings.grid) || !flag(project.settings.guides)) fail('Invalid project metadata.');
+  if (project.variables !== undefined && (!object(project.variables) ||
+    !Object.entries(project.variables).every(([key, value]) => VARIABLE_NAME.test(key) && string(value, 4000)))) fail('Invalid project variables.');
   const allIds = new Set([project.id]);
   const claim = key => {
     if (!isId(key) || allIds.has(key)) fail('Invalid or repeated project ID.');
@@ -201,6 +282,19 @@ export function validateProject(project) {
     const board = project.boards[key];
     claim(key);
     if (!object(board) || board.id !== key || !Array.isArray(board.elements) || !Array.isArray(board.connections)) fail('Invalid canvas.');
+    if (board.kind !== undefined && !['map', 'timeline'].includes(board.kind)) fail('Invalid workspace.');
+    if (board.plan !== undefined) {
+      if (board.kind !== 'map' || board.elements.length || board.connections.length || board.background !== undefined) fail('Invalid floor plan workspace.');
+      validateFloorPlan(board.plan);
+    }
+    const layers = boardLayers(board);
+    if (!Array.isArray(layers) || !layers.some(layer => layer?.id === 'default')) fail('A default layer is required.');
+    const layerIds = new Set();
+    for (const layer of layers) {
+      if (!object(layer) || !string(layer.title, 160) || !flag(layer.hidden) || !flag(layer.locked) || layerIds.has(layer.id)) fail('Invalid layer.');
+      if (layer.id !== 'default') claim(layer.id);
+      layerIds.add(layer.id);
+    }
     const elementIds = new Set();
     for (const element of board.elements) {
       if (!object(element)) fail('Invalid element.');
@@ -209,9 +303,15 @@ export function validateProject(project) {
       const { type, x, y, w, h, title, fill, color } = element;
       if (!TYPES.includes(type) || !number(x, -WORLD, WORLD) || !number(y, -WORLD, WORLD) ||
           !number(w, 24, WORLD) || !number(h, 24, WORLD) || !optionalColor(fill) || !optionalColor(color)) fail('Invalid element geometry or style.');
-      if (['canvas', 'note', 'list'].includes(type) && !string(title, 160)) fail('Invalid element title.');
-      if (type === 'canvas') {
+      if ([...WORKSPACES, 'note', 'list', 'stack', 'marker', 'event'].includes(type) && !string(title, 160)) fail('Invalid element title.');
+      if (!layerIds.has(layerId(element))) fail('An element is assigned to a missing layer.');
+      if (type === 'stack' && (!STACK_LAYOUTS.includes(element.layout) || !flag(element.expanded))) fail('Invalid stack.');
+      if ((type === 'reference' && !isId(element.targetId)) || (element.targetId !== undefined && !isId(element.targetId))) fail('Invalid element link.');
+      if (type === 'event' && (!string(element.description, 12000) || !string(element.date, 160) || !string(element.time, 40) ||
+        !number(element.duration, 0, 1e7) || (element.chronology !== null && !number(element.chronology, -1e9, 1e9)))) fail('Invalid timeline event.');
+      if (WORKSPACES.includes(type)) {
         if (!isId(element.boardId) || owned.has(element.boardId)) fail('The canvas hierarchy contains a cycle or shared child.');
+        if (project.boards[element.boardId]?.kind !== (type === 'canvas' ? undefined : type)) fail('Invalid workspace type.');
         owned.add(element.boardId);
         pending.push(element.boardId);
       }
@@ -238,12 +338,23 @@ export function validateProject(project) {
       if (type === 'shape' && (!SHAPES.includes(element.shape) || !validColor(element.stroke) ||
           !number(element.weight, 0, 24) || !number(element.opacity, 0, 1) || !number(element.angle, -360, 360))) fail('Invalid shape.');
     }
+    const stacks = new Set(board.elements.filter(model => model.type === 'stack').map(model => model.id));
+    for (const element of board.elements) {
+      if (element.stackId !== undefined && (element.type === 'stack' || WORKSPACES.includes(element.type) || !stacks.has(element.stackId))) fail('Invalid stack membership.');
+    }
+    if (board.background !== undefined && (board.kind !== 'map' || !board.elements.some(element => element.id === board.background && element.type === 'image'))) fail('Invalid map image.');
     for (const link of board.connections) {
       if (!object(link)) fail('Invalid connection.');
       claim(link.id);
+      if (link.label !== undefined && (!object(link.label) || !string(link.label.text, 500) ||
+        !number(link.label.size, 8, 72) || !validColor(link.label.color) || !flag(link.label.hidden))) fail('Invalid connection label.');
       if (!elementIds.has(link.from) || !elementIds.has(link.to) || link.from === link.to || !validColor(link.color) ||
           !['solid', 'dashed', 'dotted'].includes(link.style) || !flag(link.arrow)) fail('Invalid connection.');
     }
+  }
+  const references = new Set([...projectElements(project)].filter(element => element.type === 'reference').map(element => element.id));
+  for (const element of projectElements(project)) {
+    if (references.has(element.id) && references.has(element.targetId)) fail('A reference must point to an original element.');
   }
   if (owned.size !== Object.keys(project.boards).length) fail('The project contains orphaned canvases.');
   if (!object(project.view) || !owned.has(project.view.active) || !object(project.view.byBoard)) fail('Invalid project navigation.');

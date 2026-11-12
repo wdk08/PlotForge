@@ -29,7 +29,7 @@ function parse(json) {
   try {
     const fragment = JSON.parse(json);
     const project = createProject();
-    Object.assign(project.boards[project.root], { elements: fragment.elements, connections: fragment.connections });
+    Object.assign(project.boards[project.root], { elements: fragment.elements, connections: fragment.connections, layers: fragment.layers });
     Object.assign(project.boards, fragment.boards);
     project.view.byBoard = fragment.views;
     validateProject(project);

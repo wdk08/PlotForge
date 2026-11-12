@@ -1,13 +1,13 @@
 export function projectHistory(limit = 100) {
   const past = [], future = [];
-  const content = ({ boards, title, settings, view }) => ({ boards, title, settings, views: view.byBoard });
+  const content = ({ boards, title, settings, variables, view }) => ({ boards, title, settings, variables, views: view.byBoard });
   function apply(project, entry) {
     const byBoard = Object.fromEntries(Object.keys(entry.boards).flatMap(key => {
       const view = project.view.byBoard[key] ?? entry.views[key];
       return view ? [[key, view]] : [];
     }));
     return {
-      ...project, boards: entry.boards, title: entry.title, settings: entry.settings,
+      ...project, boards: entry.boards, title: entry.title, settings: entry.settings, variables: entry.variables,
       view: { active: entry.boards[project.view.active] ? project.view.active : project.root, byBoard },
     };
   }

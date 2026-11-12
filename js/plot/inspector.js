@@ -1,5 +1,5 @@
 import { $, button, element, task } from './common.js';
-import { ACCENT, FONTS, LABEL, LISTS, SHAPES, clamp, id } from './model.js';
+import { ACCENT, FONTS, LABEL, LISTS, SHAPES, STACK_LAYOUTS, WORKSPACES, clamp, id, layerId } from './model.js';
 
 export const SHAPE_NAMES = { rectangle: 'Rectangle', rounded: 'Rounded rectangle', ellipse: 'Circle / ellipse', line: 'Line', arrow: 'Arrow' };
 const LIST_NAMES = { bullets: 'Bulleted', numbers: 'Numbered', checklist: 'Checklist' };
@@ -115,8 +115,15 @@ export function renderInspector(editor) {
   const { model, count, link, editing } = editor.selection();
   const root = $('inspector-body');
   if (link) {
+    const label = link.label ?? { text: '', size: 14, color: '#765213', hidden: false };
+    const patchLabel = changes => editor.patchLink({ label: { ...(editor.selection().link?.label ?? label), ...changes } });
     root.replaceChildren(
       element('h2', null, 'Connection'),
+      input('Label', 'text', label.text, text => patchLabel({ text }), { maxLength: 500, ariaLabel: 'Connection label' }),
+      number('Label size', label.size, 8, 72, size => patchLabel({ size })),
+      input('Label color', 'color', label.color, color => patchLabel({ color })),
+      input('Show label', 'checkbox', !label.hidden, visible => patchLabel({ hidden: !visible })),
+      actions(['Remove Label', () => editor.patchLink({ label: undefined }, true)]),
       input('Line color', 'color', link.color, color => editor.patchLink({ color })),
       select('Line style', ['solid', 'dashed', 'dotted'], link.style, style => editor.patchLink({ style })),
       input('Directional arrow', 'checkbox', link.arrow, arrow => editor.patchLink({ arrow })),
@@ -134,7 +141,46 @@ export function renderInspector(editor) {
   const patch = (changes, refresh) => editor.patch(model.id, changes, refresh);
   const fields = [element('h2', null, LABEL[model.type])];
   if (model.title !== undefined) fields.push(input('Title', 'text', model.title, title => patch({ title: title.trim() || (model.type === 'canvas' ? 'Untitled Canvas' : `Untitled ${LABEL[model.type]}`) }), { maxLength: 160 }));
-  if (model.type === 'canvas') fields.push(actions(['Open Canvas', () => editor.navigate(model.boardId)]));
+  if (WORKSPACES.includes(model.type)) fields.push(actions([model.type === 'canvas' ? 'Open Canvas' : `Open ${LABEL[model.type]}`, () => editor.navigate(model.boardId)]));
+  const layers = editor.layers();
+  if (layers.length > 1) fields.push(select('Layer', layers.filter(layer => !layer.locked && !layer.hidden).map(layer => layer.id),
+    layerId(model), value => editor.moveToLayer(model.id, value), Object.fromEntries(layers.map(layer => [layer.id, layer.title]))));
+  if (model.type === 'stack') {
+    fields.push(select('Layout', STACK_LAYOUTS, model.layout, layout => patch({ layout }, true),
+      { collapsed: 'Collapsed', vertical: 'Vertical', horizontal: 'Horizontal', grid: 'Grid' }));
+    if (model.layout === 'collapsed') fields.push(actions([model.expanded ? 'Collapse' : 'Expand', () => editor.toggleStack(model.id)]));
+  }
+  if (model.type === 'reference') fields.push(actions(['Go to Original', () => editor.goTo(model.targetId)]));
+  if (model.type === 'marker' || model.type === 'event') {
+    fields.push(input('Color', 'color', model.color ?? ACCENT, color => patch({ color })));
+    if (model.type === 'event') {
+      const description = element('textarea');
+      description.value = model.description;
+      description.maxLength = 12000;
+      description.onchange = () => patch({ description: description.value });
+      const chronology = element('input');
+      chronology.type = 'number';
+      chronology.step = 'any';
+      chronology.value = model.chronology ?? '';
+      chronology.placeholder = 'Automatic';
+      chronology.onchange = () => {
+        const value = chronology.valueAsNumber;
+        const next = Number.isFinite(value) ? clamp(value, -1e9, 1e9) : null;
+        chronology.value = next ?? '';
+        patch({ chronology: next });
+      };
+      fields.push(
+        input('Date', 'text', model.date, date => patch({ date: date.trim() }), { maxLength: 160, placeholder: 'YYYY-MM-DD or fictional date' }),
+        input('Time', 'text', model.time, time => patch({ time: time.trim() }), { maxLength: 40, placeholder: 'HH:MM' }),
+        field('Chronology', chronology),
+        number('Duration (hours)', model.duration, 0, 1e7, duration => patch({ duration }), .25),
+        field('Description', description),
+      );
+    }
+    fields.push(actions(['Link Element', () => editor.linkElement(model.id)],
+      ...(model.targetId ? [['Go to Linked Element', () => editor.goTo(model.targetId)],
+        ['Remove Link', () => patch({ targetId: undefined }, true)]] : [])));
+  }
   if (model.type === 'text' || model.type === 'note') fields.push(...textToolbar(editor, model, editing));
   if (model.type === 'note') fields.push(input('Show border', 'checkbox', model.border, border => patch({ border })));
   if (model.type === 'list') fields.push(...listFields(editor, model));

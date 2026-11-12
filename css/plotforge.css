@@ -209,3 +209,58 @@
 .plot-update-prompt { position: fixed; z-index: 15; bottom: 42px; right: 16px; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; max-width: calc(100% - 32px); padding: 12px; background: var(--plot-surface); border: 1px solid var(--plot-accent); border-radius: 8px; box-shadow: 0 3px 14px var(--plot-shadow); }
 .plot-update-prompt p { margin: 0; font-size: 13px; }
 .plot-update-dialog progress { width: 100%; accent-color: var(--plot-accent); }
+
+.connection-label { pointer-events: visiblePainted; cursor: pointer; text-anchor: middle; dominant-baseline: central; font-weight: 600; paint-order: stroke fill; stroke: var(--plot-canvas); stroke-width: 5px; stroke-linejoin: round; }
+.element-map, .element-timeline { flex-direction: row; align-items: center; border-color: var(--plot-accent); background: var(--plot-accent-soft); }
+.element-stack { background: var(--plot-panel); border: 1px solid var(--plot-accent); }
+.stack-header, .reference-header { display: flex; align-items: center; gap: 8px; }
+.stack-header .element-title { flex: 1; min-width: 0; }
+.stack-header small, .reference-header small, .planning-date { color: var(--plot-muted); }
+.stack-toggle { font-size: 11px; border: 1px solid var(--plot-line); padding: 3px 7px; }
+.stack-closed { box-shadow: 4px 5px 0 var(--plot-accent-soft), 8px 10px 0 var(--plot-line); }
+.stack-drop-target { outline: 2px dashed var(--plot-accent); outline-offset: 4px; }
+.reference-header { justify-content: space-between; }
+.reference-header .quiet-button, .planning-link { font-size: 10px; padding: 3px 4px; }
+.reference-preview { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow: hidden; gap: 5px; padding: 4px; }
+.element-reference { border-style: dashed; }
+.element-marker, .element-event { border-left: 4px solid var(--card-color); padding: 7px 10px; gap: 4px; }
+.element-marker .element-title::before { content: '●'; margin-right: 6px; color: var(--card-color); }
+.planning-description { white-space: pre-wrap; overflow: auto; overflow-wrap: anywhere; margin: 0; font-size: 12px; }
+.timeline-axis { stroke: var(--plot-accent); stroke-width: 1px; }
+.timeline-tick { fill: var(--plot-accent); }
+.plot-element.layer-locked { cursor: default; }
+.plot-element.map-background { pointer-events: none; }
+.map-background .media-replace { display: none; }
+.planning-form { margin-top: 12px; display: grid; gap: 8px; }
+.planning-form [role=alert]:empty { display: none; }
+.layer-row { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--plot-line); }
+.layer-row input { flex: 1 1 115px; width: 115px; }
+.layer-row .quiet-button { padding: 3px 6px; font-size: 11px; }
+#layer-add, #element-targets { margin-top: 10px; }
+#inspector-body textarea { width: 100%; resize: vertical; min-height: 65px; }
+.variable-suggestions { position: fixed; z-index: 50; display: grid; min-width: 100px; padding: 4px; border: 1px solid var(--plot-line); border-radius: 6px; background: var(--plot-surface); color: var(--plot-ink); box-shadow: 0 4px 10px var(--plot-shadow); }
+.variable-suggestions button { text-align: left; padding: 5px 8px; }
+.variable-suggestions [aria-selected=true] { background: var(--plot-accent-soft); }
+.plot-update-dialog { width: min(520px, calc(100vw - 48px)); max-height: 80dvh; overflow: auto; padding: 28px; border-radius: 12px; background: var(--plot-surface); color: var(--plot-ink); }
+.plot-update-dialog h1 { font-size: 24px; margin: 4px 0 16px; }
+.plot-update-dialog h2 { font-size: 15px; }
+.plot-update-dialog pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: 12px; line-height: 1.5; max-height: 240px; overflow: auto; }
+.plot-update-dialog [data-error] { color: var(--plot-accent-ink); }
+.plot-update-dialog [data-error]:empty, .plot-update-dialog [data-status]:empty { display: none; }
+.plot-update-dialog img { border-radius: 12px; }
+
+#floor-tools { flex: none; }
+.floor-workspace-tools { flex-wrap: wrap; gap: 5px; padding-block: 6px; }
+#floor-drawing-tools, .floor-settings { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; }
+.floor-settings { margin-inline-start: auto; }
+.floor-settings select, #floor-variant select { width: auto; color: var(--plot-ink); background: var(--plot-surface); border: 1px solid var(--plot-line); border-radius: 5px; padding: 4px 7px; }
+.floor-workspace-tools button[aria-pressed=true] { color: var(--plot-accent-ink); background: var(--plot-accent-soft); }
+#floor-furniture [data-insert] { cursor: grab; }
+#floor-scene { position: absolute; inset: 0; width: 100%; height: 100%; overflow: hidden; cursor: crosshair; }
+#floor-scene[data-tool=select] { cursor: default; }
+#floor-scene[data-tool=select] [data-plan-id] { cursor: move; }
+#floor-scene[data-tool=select] [data-plan-handle=size], #floor-scene[data-tool=select] [data-plan-handle=room-size] { cursor: nwse-resize; }
+#floor-scene[data-tool=select] [data-plan-handle=opening-size] { cursor: ew-resize; }
+#floor-scene[data-tool=select] [data-plan-handle=rotate] { cursor: crosshair; }
+#plot-canvas.floor-plan-active :is(#plot-stage, #plot-links, #canvas-hint) { display: none; }
+#plot-canvas.space-held #floor-scene, #plot-canvas.panning #floor-scene { pointer-events: none; }

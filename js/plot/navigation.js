@@ -1,17 +1,19 @@
 import { $, button, element } from './common.js';
-import { boardPath, parents } from './model.js';
+import { boardPath, parents, WORKSPACES } from './model.js';
+
+import { resolveText } from './variables.js';
 
 export function navigation(onNavigate) {
   const expanded = new Set();
   let project, parentMap, path;
-  const name = key => parentMap.get(key)?.element.title || (key === project.root ? project.title : 'Untitled Canvas');
+  const name = key => resolveText(parentMap.get(key)?.element.title || (key === project.root ? project.title : 'Untitled Canvas'), project.variables);
   function renderTree() {
     const tree = document.createDocumentFragment();
     const stack = [{ key: project.root, depth: 0 }];
     while (stack.length) {
       const { key, depth } = stack.pop();
       const board = project.boards[key];
-      const children = board.elements.filter(element => element.type === 'canvas');
+      const children = board.elements.filter(element => WORKSPACES.includes(element.type));
       const row = element('div', 'board-row');
       row.style.setProperty('--depth', String(Math.min(depth, 8)));
       if (children.length) {
@@ -38,11 +40,11 @@ export function navigation(onNavigate) {
   return {
     update(next) {
       const moved = project?.view.active !== next.view.active;
-      if (!moved && project?.boards === next.boards && project?.title === next.title) return;
+      if (!moved && project?.boards === next.boards && project?.title === next.title && project?.variables === next.variables) return;
       const previous = project;
       project = next;
       const nextMap = parents(next);
-      if (!moved && previous?.title === next.title && parentMap?.size === nextMap.size && [...nextMap].every(([key, parent]) =>
+      if (!moved && previous?.title === next.title && previous?.variables === next.variables && parentMap?.size === nextMap.size && [...nextMap].every(([key, parent]) =>
         parentMap.get(key)?.board === parent.board && parentMap.get(key)?.element.title === parent.element.title)) {
         parentMap = nextMap;
         return;

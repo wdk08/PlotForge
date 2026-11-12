@@ -1,7 +1,17 @@
 import { $, element, button } from './common.js';
-import { ICON, LABEL, MEDIA_TYPES } from './model.js';
+import { ICON, LABEL, MEDIA_TYPES, WORKSPACES } from './model.js';
 import { bounds, endpoints, intersects, viewportBounds } from './geometry.js';
 import { cleanHTML } from './rich-text.js';
+import { elementIndex, layerAccess, stackOpen } from './planning.js';
+import { resolveText, transformHTML } from './variables.js';
+
+export const resolvedHTML = (html, variables) => transformHTML(cleanHTML(html), text => resolveText(text, variables));
+export function referenceSource(model, project) {
+  if (model.type !== 'reference') return undefined;
+  const source = elementIndex(project).get(model.targetId)?.model;
+  return source?.type !== 'reference' ? source : undefined;
+}
+export const cardAsset = (model, project) => model.asset ?? referenceSource(model, project)?.asset;
 
 export const SVG = 'http://www.w3.org/2000/svg';
 export const svg = (tag, attributes = {}) => {
@@ -18,7 +28,7 @@ export function arrowPoints(from, to, size) {
   const dx = Math.sin(angle) * size * .52, dy = Math.cos(angle) * size * .52;
   return `${to.x},${to.y} ${base.x + dx},${base.y - dy} ${base.x - dx},${base.y + dy}`;
 }
-export function linkSVG(link, from, to, { scale = 1, hit = false } = {}) {
+export function linkSVG(link, from, to, { scale = 1, hit = false, labelScale = scale, variables } = {}) {
   const group = svg('g', { 'data-connection': link.id });
   const coords = { x1: from.x, y1: from.y, x2: to.x, y2: to.y };
   if (hit) group.append(svg('line', { ...coords, class: 'connection-hit', stroke: 'transparent', 'stroke-width': 16 }));
@@ -26,6 +36,12 @@ export function linkSVG(link, from, to, { scale = 1, hit = false } = {}) {
   if (link.style !== 'solid') path.setAttribute('stroke-dasharray', link.style === 'dashed' ? `${7 * scale} ${5 * scale}` : `${1 * scale} ${5 * scale}`);
   group.append(path);
   if (link.arrow) group.append(svg('polygon', { points: arrowPoints(from, to, 12 * scale), fill: link.color, class: 'connection-visible' }));
+  if (link.label?.text && !link.label.hidden) {
+    const label = svg('text', { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2,
+      'font-size': Math.max(7, link.label.size * labelScale), fill: link.label.color, class: 'connection-label' });
+    label.textContent = resolveText(link.label.text, variables);
+    group.append(label);
+  }
   return group;
 }
 function shapeSVG(model) {
@@ -47,14 +63,14 @@ export function labelTime(seconds) {
   const minutes = Math.floor(seconds / 60);
   return `${minutes}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`;
 }
-function buildList(model, callbacks, exporting) {
+function buildList(model, callbacks, exporting, resolve, readOnly) {
   const tag = model.kind === 'numbers' ? 'ol' : 'ul';
   const list = element(tag, 'plot-list ' + model.kind);
   if (!model.items.length) list.append(element('li', 'list-empty', 'Add items in the inspector.'));
   for (const item of model.items) {
     const row = element('li', item.done && model.kind === 'checklist' ? 'done' : '');
     if (model.kind === 'checklist') {
-      if (exporting) row.append(element('span', 'check-symbol', item.done ? '☑' : '☐'));
+      if (exporting || readOnly) row.append(element('span', 'check-symbol', item.done ? '☑' : '☐'));
       else {
         const input = element('input');
         input.type = 'checkbox';
@@ -64,14 +80,14 @@ function buildList(model, callbacks, exporting) {
         row.append(input);
       }
     }
-    row.append(element('span', null, item.text || 'New item'));
+    row.append(element('span', null, resolve(item.text) || 'New item'));
     list.append(row);
   }
   return list;
 }
-function mediaPlaceholder(node, model, callbacks, exporting) {
+function mediaPlaceholder(node, model, callbacks, exporting, readOnly) {
   const label = `Upload ${LABEL[model.type]}`;
-  const control = exporting ? element('div', 'media-upload') : button('', () => callbacks.upload(model), 'media-upload');
+  const control = exporting || readOnly ? element('div', 'media-upload') : button('', () => callbacks.upload(model), 'media-upload');
   const icon = element('span', 'placeholder-icon', model.type === 'video' ? '▶' : ICON[model.type]);
   icon.setAttribute('aria-hidden', 'true');
   control.append(icon);
@@ -86,7 +102,7 @@ function mediaPlaceholder(node, model, callbacks, exporting) {
     control.append(wave);
   }
   control.append(element('span', 'placeholder-label', label));
-  if (!exporting) {
+  if (!exporting && !readOnly) {
     const grip = element('span', 'placeholder-grip', '⠿');
     grip.title = 'Move media card';
     grip.setAttribute('aria-hidden', 'true');
@@ -95,9 +111,9 @@ function mediaPlaceholder(node, model, callbacks, exporting) {
   node.append(control);
 }
 
-function mediaContents(node, model, callbacks, exporting) {
+function mediaContents(node, model, callbacks, exporting, readOnly) {
   node.classList.toggle('media-empty', !model.asset);
-  if (!model.asset) return mediaPlaceholder(node, model, callbacks, exporting);
+  if (!model.asset) return mediaPlaceholder(node, model, callbacks, exporting, readOnly);
 
   if (model.type === 'audio' || model.type === 'video' && exporting) {
     const title = element('div', 'media-title');
@@ -132,35 +148,71 @@ function mediaContents(node, model, callbacks, exporting) {
     if (node.contains(media)) media.src = url;
   }).catch(() => { if (node.contains(media)) node.append(element('small', 'media-error', 'Media unavailable')); });
   node.append(media);
-  if (!exporting) {
+  if (!exporting && !readOnly) {
     const replace = button('Replace', () => callbacks.upload(model), 'media-replace');
     replace.setAttribute('aria-label', `Replace ${LABEL[model.type]}`);
     node.append(replace);
   }
 }
-function contents(node, model, board, callbacks, exporting) {
+function contents(node, model, project, callbacks, exporting, readOnly = false) {
+  const resolve = text => resolveText(text ?? '', project.variables);
+  const board = project.boards[model.boardId];
   node.replaceChildren();
   node.style.backgroundColor = model.fill && model.type !== 'shape' ? model.fill : '';
-  node.style.color = model.color ?? '';
+  node.style.color = model.type === 'marker' || model.type === 'event' ? '' : model.color ?? '';
   node.classList.toggle('borderless', model.border === false);
   if (model.type === 'text' || model.type === 'note') {
-    if (model.type === 'note') node.append(element('strong', 'element-title', model.title || 'Untitled Note'));
+    if (model.type === 'note') node.append(element('strong', 'element-title', resolve(model.title) || 'Untitled Note'));
     const text = element('div', 'rich-content');
     text.dataset.placeholder = model.type === 'note' ? 'Double-click to write a note' : 'Double-click to add text';
     text.style.fontFamily = FONTS[model.font];
     text.style.fontSize = `${model.size}px`;
     text.style.textAlign = model.align;
-    text.innerHTML = cleanHTML(model.html);
+    text.innerHTML = resolvedHTML(model.html, project.variables);
     node.append(text);
   } else if (model.type === 'list') {
-    node.append(element('strong', 'element-title', model.title || 'Untitled List'), buildList(model, callbacks, exporting));
-  } else if (model.type === 'canvas') {
+    node.append(element('strong', 'element-title', resolve(model.title) || 'Untitled List'), buildList(model, callbacks, exporting, resolve, readOnly));
+  } else if (WORKSPACES.includes(model.type)) {
     const label = element('div', 'nested-label');
-    label.append(element('strong', 'element-title', model.title || 'Untitled Canvas'),
-      element('small', null, `${board?.elements.length ?? 0} ${board?.elements.length === 1 ? 'element' : 'elements'}`));
-    node.append(element('span', 'nested-icon', ICON.canvas), label, element('span', 'nested-arrow', '↗'));
+    label.append(element('strong', 'element-title', resolve(model.title)),
+      element('small', null, board?.plan ? `${board.plan.floors.length} ${board.plan.floors.length === 1 ? 'floor' : 'floors'}` :
+        `${board?.elements.length ?? 0} ${board?.elements.length === 1 ? 'element' : 'elements'}`));
+    node.append(element('span', 'nested-icon', ICON[model.type]), label, element('span', 'nested-arrow', '↗'));
+  } else if (model.type === 'stack') {
+    const header = element('div', 'stack-header');
+    header.append(element('strong', 'element-title', resolve(model.title)), element('small', null, `${model.count ?? 0} cards`));
+    if (!readOnly && !exporting && model.layout === 'collapsed') {
+      header.append(button(model.expanded ? 'Collapse' : 'Expand', () => callbacks.toggleStack(model.id), 'stack-toggle'));
+    }
+    node.classList.toggle('stack-closed', !stackOpen(model));
+    node.append(header);
+  } else if (model.type === 'reference') {
+    const source = referenceSource(model, project);
+    const header = element('div', 'reference-header');
+    header.append(element('small', null, source ? 'REFERENCE' : 'ORIGINAL UNAVAILABLE'));
+    if (source && !exporting) header.append(button('Go to Original', () => callbacks.goTo(model.targetId), 'quiet-button'));
+    node.append(header);
+    if (source) {
+      const preview = element('div', `reference-preview element-${source.type}`);
+      contents(preview, { ...source, w: Math.max(24, model.w - 20), h: Math.max(24, model.h - 44) }, project, callbacks, exporting, true);
+      node.append(preview);
+    }
+  } else if (model.type === 'marker' || model.type === 'event') {
+    node.style.setProperty('--card-color', model.color ?? '#B58A35');
+    const heading = element('strong', 'element-title', resolve(model.title));
+    node.append(heading);
+    if (model.type === 'event') {
+      const when = [resolve(model.date), resolve(model.time)].filter(Boolean).join(' · ') ||
+        (model.chronology === null ? 'Undated' : `Position ${model.chronology}`);
+      node.append(element('small', 'planning-date', model.duration ? `${when} · ${model.duration}h` : when));
+      if (model.description) node.append(element('p', 'planning-description', resolve(model.description)));
+    }
+    const target = model.targetId && elementIndex(project).get(model.targetId);
+    if (model.targetId && !exporting && !readOnly) node.append(target
+      ? button('Open linked element', () => callbacks.goTo(model.targetId), 'quiet-button planning-link')
+      : element('small', 'planning-date', 'Linked element unavailable'));
   } else if (model.type === 'shape') node.append(shapeSVG(model));
-  else mediaContents(node, model, callbacks, exporting);
+  else mediaContents(node, model, callbacks, exporting, readOnly);
 }
 
 export function updateGeometry(node, model) {
@@ -172,13 +224,13 @@ export function makeCard(model, project, callbacks, exporting = false) {
   const node = element('div', `plot-element element-${model.type}`);
   node.dataset.element = model.id;
   node.dataset.type = model.type;
-  node.setAttribute('aria-label', model.title || model.name || LABEL[model.type]);
+  node.setAttribute('aria-label', resolveText(model.title || model.name || LABEL[model.type], project.variables));
   updateGeometry(node, model);
-  contents(node, model, project.boards[model.boardId], callbacks, exporting);
+  contents(node, model, project, callbacks, exporting);
   return node;
 }
 
-function reviseCard(node, old, model, project, callbacks, editing) {
+function reviseCard(node, old, model, project, callbacks, editing, refreshText) {
   if (old.x !== model.x || old.y !== model.y || old.w !== model.w || old.h !== model.h || old.angle !== model.angle) updateGeometry(node, model);
   if (editing) {
     const text = node.querySelector('.rich-content');
@@ -189,19 +241,19 @@ function reviseCard(node, old, model, project, callbacks, editing) {
     node.style.backgroundColor = model.fill ?? '';
     node.classList.toggle('borderless', model.border === false);
     const title = node.querySelector('.element-title');
-    if (title) title.textContent = model.title || 'Untitled Note';
+    if (title) title.textContent = resolveText(model.title || 'Untitled Note', project.variables);
     return;
   }
-  node.setAttribute('aria-label', model.title || model.name || LABEL[model.type]);
+  node.setAttribute('aria-label', resolveText(model.title || model.name || LABEL[model.type], project.variables));
   const { x, y, w, h, angle, ...before } = old;
   const { x: nx, y: ny, w: nw, h: nh, angle: na, ...after } = model;
-  if (Object.keys(after).some(key => before[key] !== after[key]) || Object.keys(before).length !== Object.keys(after).length ||
+  if (refreshText || Object.keys(after).some(key => before[key] !== after[key]) || Object.keys(before).length !== Object.keys(after).length ||
       model.type === 'shape' && (w !== nw || h !== nh)) {
     // Metadata updates must leave native media controls and playback intact.
     if (MEDIA_TYPES.includes(model.type) && old.asset === model.asset) {
       const meta = node.querySelector('.media-meta');
       if (meta && model.duration !== undefined) meta.textContent = labelTime(model.duration);
-    } else contents(node, model, project.boards[model.boardId], callbacks, false);
+    } else contents(node, model, project, callbacks, false);
   }
 }
 
@@ -216,7 +268,7 @@ export function createCanvasRenderer(callbacks) {
       player.removeAttribute('src');
       player.load();
     }
-    if (entry.model.asset) callbacks.release(entry.model.asset);
+    if (entry.asset) callbacks.release(entry.asset);
   }
   const forget = key => {
     const entry = nodes.get(key);
@@ -227,7 +279,7 @@ export function createCanvasRenderer(callbacks) {
   };
   function paint() {
     frame = 0;
-    const { project, board, view, selected, linkId, editing, guides, marquee, connecting } = state;
+    const { project, board, view, selected, linkId, editing, guides, marquee, connecting, stackTarget } = state;
     const { clientWidth: width, clientHeight: height } = canvas;
     if (active !== board.id) {
       for (const key of nodes.keys()) forget(key);
@@ -242,6 +294,7 @@ export function createCanvasRenderer(callbacks) {
     canvas.style.backgroundPosition = `${view.x % interval}px ${view.y % interval}px`;
     const visible = viewportBounds(view, width, height);
     const modelById = new Map();
+    const access = layerAccess(project.boards[board.id]);
     const order = [];
     for (const model of board.elements) {
       modelById.set(model.id, model);
@@ -249,19 +302,31 @@ export function createCanvasRenderer(callbacks) {
       const media = entry?.node.querySelector('audio, video');
       const keepAlive = media && !media.paused;
       if (editing !== model.id && !keepAlive && !intersects(bounds(model), visible)) continue;
+      const source = referenceSource(model, project);
+      const linked = model.targetId && elementIndex(project).get(model.targetId)?.model;
+      const asset = model.asset ?? source?.asset;
+      const child = project.boards[model.boardId];
       if (!entry) {
-        if (model.asset) callbacks.retain(model.asset);
-        entry = { node: makeCard(model, project, callbacks), model };
+        if (asset) callbacks.retain(asset);
+        entry = { node: makeCard(model, project, callbacks), model, source, linked, asset, child, variables: project.variables };
         nodes.set(model.id, entry);
-      } else if (model !== entry.model) {
-        if (model.asset !== entry.model.asset) {
-          unload(entry);
-          if (model.asset) callbacks.retain(model.asset);
+      } else {
+        const refresh = entry.source !== source || entry.variables !== project.variables || entry.linked !== linked || entry.child !== child;
+        if (model !== entry.model || refresh) {
+          if (asset !== entry.asset || refresh && model.type === 'reference' && asset) {
+            unload(entry);
+            if (asset) callbacks.retain(asset);
+          }
+          reviseCard(entry.node, entry.model, model, project, callbacks, editing === model.id, refresh);
+          Object.assign(entry, { model, source, linked, asset, child, variables: project.variables });
         }
-        reviseCard(entry.node, entry.model, model, project, callbacks, editing === model.id);
-        entry.model = model;
       }
       const node = entry.node;
+      const { locked } = access(model);
+      node.classList.toggle('layer-locked', locked);
+      node.classList.toggle('map-background', model.id === board.background);
+      for (const control of node.querySelectorAll('input, .media-upload, .media-replace, .stack-toggle')) control.disabled = locked;
+      node.classList.toggle('stack-drop-target', model.id === stackTarget);
       node.classList.toggle('selected', selected.has(model.id));
       node.classList.toggle('connect-from', connecting?.id === model.id);
       let handle = node.querySelector('.resize-handle');
@@ -289,11 +354,21 @@ export function createCanvasRenderer(callbacks) {
     }
     const screen = pos => ({ x: pos.x * view.zoom + view.x, y: pos.y * view.zoom + view.y });
     const connectionNodes = document.createDocumentFragment();
+    if (board.kind === 'timeline') {
+      const axis = screen({ x: 0, y: 74 });
+      connectionNodes.append(svg('line', { x1: 0, y1: axis.y, x2: width, y2: axis.y, class: 'timeline-axis' }));
+      for (const model of board.elements) {
+        if (model.type !== 'event' || model.y !== 95) continue;
+        const x = screen({ x: model.x + 12, y: 0 }).x;
+        if (x < 0 || x > width) continue;
+        connectionNodes.append(svg('circle', { cx: x, cy: axis.y, r: 4, class: 'timeline-tick' }));
+      }
+    }
     for (const link of board.connections) {
       const [start, end] = endpoints(modelById.get(link.from), modelById.get(link.to)).map(screen);
       if (!intersects({ left: Math.min(start.x, end.x), right: Math.max(start.x, end.x), top: Math.min(start.y, end.y), bottom: Math.max(start.y, end.y) },
         { left: -16, top: -16, right: width + 16, bottom: height + 16 })) continue;
-      const group = linkSVG(link, start, end, { hit: true });
+      const group = linkSVG(link, start, end, { hit: true, variables: project.variables, labelScale: view.zoom });
       if (link.id === linkId) group.classList.add('selected-link');
       connectionNodes.append(group);
     }

@@ -119,6 +119,7 @@ pub fn run() {
                 #[cfg(feature = "native-smoke")]
                 smoke,
             });
+            plot_updates::menu(app.handle())?;
             Ok(())
         })
         .on_window_event(|window, event| {

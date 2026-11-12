@@ -9,16 +9,22 @@ import { repository, snapshot } from './storage.js';
 import { projectHistory, pruneViews } from './history.js';
 import { mediaSources, importMedia, storeMedia } from './media.js';
 import {
-  LABEL, MEDIA_TYPES, SHAPES, connect, extractSelection, insertElement, insertSelection, layer, makeElement, parents, point,
+  LABEL, MEDIA_TYPES, SHAPES, WORKSPACES, boardLayers, layerId, connect, extractSelection, insertElement, insertSelection, layer, makeElement, parents, point,
   removeSelection, statistics, updateBoard, validateProject, viewDefault, WORLD,
 } from './model.js';
 import { boardBounds, fitView, worldAt, zoomAt } from './geometry.js';
-import { createCanvasRenderer } from './render.js';
+import { createCanvasRenderer, resolvedHTML } from './render.js';
 import { renderInspector, SHAPE_NAMES } from './inspector.js';
 import { navigation } from './navigation.js';
 import { bindContextDismissal, bindGestures, showContext } from './gestures.js';
 import { bindToolbarDrag } from './toolbar-drag.js';
 import { cleanHTML, pasteText } from './rich-text.js';
+import { bindPlanningPanels } from './panels.js';
+import { canStack, elementIndex, layerAccess, moveTimelineEvent, placeInStack, presentBoard, stackOpen } from './planning.js';
+import { bindVariableSuggestions, resolveText } from './variables.js';
+
+import { bindFloorEditor } from './floor-editor.js';
+import { makePlan } from './floor-model.js';
 
 const canvas = $('plot-canvas');
 const EDITABLE = 'input, textarea, select, [contenteditable="true"]';
@@ -43,13 +49,30 @@ async function start() {
     $('save-error-message').textContent = error?.message ?? '';
   });
   const media = mediaSources(repository);
-  const renderer = createCanvasRenderer({ ...media, toggle: toggleItem, upload: chooseMedia });
+  const renderer = createCanvasRenderer({ ...media, toggle: toggleItem, upload: chooseMedia, toggleStack, goTo });
   const active = () => project.view.active;
   const getBoard = () => project.boards[active()];
   const getView = () => project.view.byBoard[active()] ?? viewDefault();
   const getElement = key => getBoard().elements.find(model => model.id === key);
+  const editable = (board, model) => {
+    if (!model) return false;
+    const access = layerAccess(board)(model);
+    return !access.hidden && !access.locked;
+  };
+  const canEdit = key => editable(getBoard(), getElement(key));
+  function canMove(key) {
+    const model = getElement(key), board = getBoard();
+    return editable(board, model) && (model.type !== 'stack' ||
+      !board.elements.some(child => child.stackId === key && layerAccess(board)(child).locked));
+  }
+  const interactionBoard = () => {
+    const board = getBoard(), access = layerAccess(board), displayed = presentBoard(board);
+    return { ...displayed, elements: displayed.elements.filter(model => !access(model).locked) };
+  };
+  const insertionLayer = board => boardLayers(board).find(layer => !layer.hidden && !layer.locked);
   const selectedIds = () => selections.get(active()) ?? new Set();
-  const selectedConnection = () => getBoard().connections.find(link => link.id === connectionId);
+  const selectedConnection = () => getBoard().connections.find(link => link.id === connectionId &&
+    canEdit(link.from) && canEdit(link.to) && presentBoard(getBoard()).connections.some(shown => shown.id === link.id));
   const pick = ids => selections.set(active(), ids);
   const selection = () => {
     const ids = selectedIds(), key = ids.values().next().value;
@@ -70,26 +93,32 @@ async function start() {
     }) };
   }
   function paint(immediate = false) {
-    renderer.update({ project, board: draftBoard(), view: getView(), selected: selectedIds(),
-      linkId: connectionId, editing: editing?.key, guides, marquee: marqueeRect, connecting }, immediate);
+    floorEditor.paint(immediate);
+    renderer.update({ project, board: presentBoard(draftBoard(), draft?.floating), view: getView(), selected: selectedIds(),
+      linkId: connectionId, editing: editing?.key, guides, marquee: marqueeRect, connecting, stackTarget: draft?.target?.id }, immediate);
   }
   function updateUI(inspector = true) {
     const board = getBoard();
-    const ids = new Set(board.elements.filter(model => selectedIds().has(model.id)).map(model => model.id));
+    const ids = new Set(interactionBoard().elements.filter(model => selectedIds().has(model.id)).map(model => model.id));
     pick(ids);
     if (!selectedConnection()) connectionId = undefined;
     if (document.activeElement !== $('document-title')) $('document-title').value = project.title;
     $('undo').disabled = !history.canUndo;
     $('redo').disabled = !history.canRedo;
-    $('grid-toggle').textContent = project.settings.grid ? 'Hide Grid' : 'Show Grid';
+    $('grid-toggle').textContent = (board.plan?.grid ?? project.settings.grid) ? 'Hide Grid' : 'Show Grid';
     $('guides-toggle').textContent = project.settings.guides ? 'Disable Alignment Guides' : 'Enable Alignment Guides';
-    $('connect').setAttribute('aria-pressed', String(Boolean(connecting)));
+    for (const key of ['connect', 'map-route']) $(key).setAttribute('aria-pressed', String(Boolean(connecting)));
+    document.querySelector('[aria-label="Insert elements"]').hidden = Boolean(board.kind);
+    $('map-tools').hidden = board.kind !== 'map' || Boolean(board.plan);
+    $('map-image').textContent = board.background ? 'Replace Map Image' : 'Upload Map Image';
+    $('timeline-tools').hidden = board.kind !== 'timeline';
     canvas.classList.toggle('connecting', Boolean(connecting));
     $('selection-status').textContent = connecting ? connecting.id ? 'Choose a destination element' : 'Choose the first element'
       : connectionId ? 'Connection selected' : ids.size ? `${ids.size} selected` : 'Canvas ready';
     $('board-status').textContent = `${board.elements.length} ${board.elements.length === 1 ? 'element' : 'elements'} · ${board.connections.length} ${board.connections.length === 1 ? 'connection' : 'connections'}`;
     nav.update(project);
-    if (inspector) renderInspector(api);
+    if (inspector && !board.plan) renderInspector(api);
+    floorEditor.sync(board, inspector);
     paint();
   }
   function assign(next, inspector = true) {
@@ -110,7 +139,8 @@ async function start() {
   }
   function patch(key, changes, refresh = false, grouped) {
     const board = getBoard(), model = getElement(key);
-    if (!model || Object.entries(changes).every(([key, value]) => model[key] === value)) return;
+    if (!editable(board, model) || model.type === 'stack' && 'layout' in changes && !canMove(key) ||
+      Object.entries(changes).every(([key, value]) => model[key] === value)) return;
     const next = { ...model, ...changes };
     for (const key of Object.keys(changes)) if (next[key] === undefined) delete next[key];
     commitBoard({ ...board, elements: board.elements.map(item => item.id === key ? next : item) }, { inspector: refresh, grouped });
@@ -123,6 +153,7 @@ async function start() {
     commitBoard({ ...board, connections: board.connections.map(item => item.id === link.id ? next : item) }, { inspector: refresh });
   }
   function setSize(key, dimension, value) {
+    if (!canMove(key)) return;
     const model = getElement(key);
     if (!model) return;
     const ratio = ['image', 'video'].includes(model.type) ? model.ratio ?? model.w / model.h : null;
@@ -133,6 +164,7 @@ async function start() {
   }
 
   function selectElement(key, additive = false, keepGroup = false) {
+    if (!canEdit(key)) return;
     const ids = selectedIds();
     if (additive) {
       const next = new Set(ids);
@@ -156,7 +188,7 @@ async function start() {
   }
   function selectAll() {
     endEditing();
-    pick(new Set(getBoard().elements.map(model => model.id)));
+    pick(new Set(interactionBoard().elements.map(model => model.id)));
     connectionId = undefined;
     updateUI();
   }
@@ -185,7 +217,7 @@ async function start() {
   function endField() { field = undefined; }
   function edit(key) {
     const model = getElement(key);
-    if (!model || !['note', 'text'].includes(model.type)) return;
+    if (!model || !canEdit(key) || !['note', 'text'].includes(model.type)) return;
     if (editing?.key === key) return;
     endEditing();
     selectElement(key);
@@ -194,6 +226,7 @@ async function start() {
     if (!control) return;
     editing = { key, control, recorded: false };
     range = undefined;
+    control.innerHTML = cleanHTML(model.html);
     control.contentEditable = 'true';
     control.setAttribute('role', 'textbox');
     control.setAttribute('aria-label', model.type === 'note' ? 'Note body' : 'Text content');
@@ -228,7 +261,7 @@ async function start() {
     control.removeEventListener('paste', pasteText);
     control.removeEventListener('drop', prevent);
     control.oninput = null;
-    control.innerHTML = getElement(key)?.html ?? '';
+    control.innerHTML = resolvedHTML(getElement(key)?.html ?? '', project.variables);
     updateUI();
   }
   function format(key, command, value) {
@@ -246,7 +279,9 @@ async function start() {
   function activate(key) {
     const model = getElement(key);
     if (!model) return;
-    if (model.type === 'canvas') navigate(model.boardId);
+    if (WORKSPACES.includes(model.type)) navigate(model.boardId);
+    else if (model.type === 'reference') goTo(model.targetId);
+    else if (model.type === 'stack' && model.layout === 'collapsed') toggleStack(key);
     else if (model.type === 'text' || model.type === 'note') edit(key);
     else showInspector();
   }
@@ -279,15 +314,18 @@ async function start() {
     if (model) patch(key, { items: model.items.filter(item => item.id !== itemId) }, true);
   }
 
-  function place(model, board = active()) {
-    if (!project.boards[board]) return;
+  function place(model, board = active(), plan) {
+    const layer = project.boards[board] && insertionLayer(project.boards[board]);
+    if (!layer) { report(new Error('Show and unlock a layer before adding elements.')); return false; }
+    if (layer.id !== 'default') model.layerId = layer.id;
     if (board === active()) {
       pick(new Set([model.id]));
       connectionId = connecting = undefined;
     }
-    commit(insertElement(project, board, model));
+    commit(insertElement(project, board, model, plan));
+    return true;
   }
-  function insert(type, pos = centerWorld(), options) {
+  function insert(type, pos = centerWorld(), options, plan) {
     endEditing();
     const model = makeElement(type, pos.x, pos.y, options);
     if (pos.fromCenter) {
@@ -299,7 +337,7 @@ async function start() {
       model.x = point(model.x + offset - model.w / 2);
       model.y = point(model.y + offset - model.h / 2);
     }
-    place(model);
+    if (!place(model, active(), plan)) return;
     canvas.focus({ preventScroll: true });
     return model;
   }
@@ -316,8 +354,10 @@ async function start() {
         catch (error) { failures.push(error.message); }
       }
       if (models.length && project.boards[board]) {
+        const layer = insertionLayer(project.boards[board]);
+        if (!layer) throw new Error('Show and unlock a layer before adding elements.');
         let next = project;
-        for (const model of models) next = insertElement(next, board, model);
+        for (const model of models) next = insertElement(next, board, layer.id === 'default' ? model : { ...model, layerId: layer.id });
         if (board === active()) { pick(new Set(models.map(model => model.id))); connectionId = connecting = undefined; }
         commit(next);
       }
@@ -333,7 +373,7 @@ async function start() {
         if (uploads.get(model.id) !== token) return;
         const board = project.boards[boardId];
         const current = board?.elements.find(item => item.id === model.id);
-        if (!current || current.asset !== model.asset) return;
+        if (!editable(board, current) || current.asset !== model.asset) return;
         const { ratio, duration, ...card } = current;
         const replacement = { ...card, ...media };
         commit(updateBoard(project, { ...board, elements: board.elements.map(item => item.id === model.id ? replacement : item) }));
@@ -351,10 +391,23 @@ async function start() {
     commit(copy.project);
   }
   async function paste(data, position = centerWorld()) {
+    if (getBoard().plan) return;
     endEditing();
-    if (data.files?.length) return addFiles(data.files, position);
+    if (data.files?.length) {
+      if (getBoard().kind === 'map') {
+        if (data.files.length !== 1) throw new Error('Paste one image to use as the map background.');
+        return setMapImage(data.files[0], active());
+      }
+      return addFiles(data.files, position);
+    }
     if (data.fragment?.elements.length) {
+      if (!insertionLayer(getBoard())) throw new Error('Show and unlock a layer before pasting elements.');
       const source = data.fragment;
+      const kind = getBoard().kind;
+      if (source.elements.some(model => kind === 'map' ? model.type !== 'marker' :
+        kind === 'timeline' ? model.type !== 'event' : ['marker', 'event'].includes(model.type))) {
+        throw new Error('Paste locations onto maps, events onto timelines, and other cards onto canvases.');
+      }
       const keys = new Set();
       for (const board of [source, ...Object.values(source.boards)]) for (const model of board.elements) if (model.asset) keys.add(model.asset);
       const board = active();
@@ -365,22 +418,31 @@ async function start() {
       pick(copy.ids);
       connectionId = connecting = undefined;
       commit(copy.project);
-    } else if (data.text?.trim()) {
+    } else if (data.text?.trim() && !getBoard().kind) {
       const safe = element('div', null, data.text.slice(0, 90_000));
       insert('text', position, { html: safe.innerHTML });
     }
   }
-  async function deleteSelection() {
+  async function deleteSelection(cut = false) {
     endEditing();
     const board = active(), ids = new Set(selectedIds()), link = connectionId;
     if (!ids.size && !link) return;
-    if (getBoard().elements.some(model => model.type === 'canvas' && ids.has(model.id))) {
-      if (!await ask('Delete nested canvas?', 'Every element and nested canvas inside the selected canvas cards will also be deleted. You can undo this in the editor.', undefined, 'Delete')) return;
+    if (cut) for (const model of getBoard().elements) if (ids.has(model.stackId)) ids.add(model.id);
+    if (cut && [...ids].some(key => !canEdit(key))) throw new Error('Show and unlock the stack contents before cutting.');
+    if (getBoard().elements.some(model => WORKSPACES.includes(model.type) && ids.has(model.id))) {
+      if (!await ask('Delete nested canvas?', 'The selected workspaces and their contents will also be deleted. You can undo this in the editor.', undefined, 'Delete')) return;
       if (board !== active()) return;
     }
     pick(new Set());
     connectionId = connecting = undefined;
-    commit(pruneViews(removeSelection(project, board, ids, link)));
+    const current = getBoard();
+    const positions = new Map(presentBoard(current).elements.map(model => [model.id, model]));
+    const prepared = current.elements.map(model => {
+      if (!ids.has(model.stackId) || ids.has(model.id) || !positions.has(model.id)) return model;
+      const { x, y } = positions.get(model.id);
+      return { ...model, x, y };
+    });
+    commit(pruneViews(removeSelection(updateBoard(project, { ...current, elements: prepared }), board, ids, link)));
   }
   function moveLayer(forward) { commitBoard(layer(getBoard(), selectedIds(), forward)); }
   function toggleConnection() {
@@ -391,6 +453,7 @@ async function start() {
     canvas.focus({ preventScroll: true });
   }
   function connectionClick(key) {
+    if (!canEdit(key) || getBoard().kind === 'map' && getElement(key)?.type !== 'marker') return;
     if (!connecting.id) {
       connecting = { id: key };
       pick(new Set([key]));
@@ -410,22 +473,43 @@ async function start() {
   const clearDraft = () => { draft = guides = marqueeRect = undefined; paint(); };
   const api = {
     selection, patch, patchLink, setSize, edit, endEditing, format, beginField, endField, editItem, moveItem, removeItem, getElement, navigate,
-    duplicate, delete: deleteSelection, layer: moveLayer, paint, activate, getBoard, getView, selectedIds, selectElement, selectLink, clearSelection,
-    setView, persistView, guidesEnabled: () => project.settings.guides, isConnecting: () => Boolean(connecting), connectionClick, connectionHover, clearDraft,
-    previewBoard(original, elements, nextGuides) {
+    duplicate, delete: () => deleteSelection(), layer: moveLayer, paint, activate, getBoard: interactionBoard, getView, selectedIds, selectElement, selectLink, clearSelection,
+    setView, persistView, canEdit, canMove, editConnection, guidesEnabled: () => project.settings.guides, isConnecting: () => Boolean(connecting), connectionClick, connectionHover, clearDraft,
+    previewBoard(original, elements, nextGuides, mode, position) {
       const geometry = new Map();
+      const floating = new Set();
       for (const [index, model] of elements.entries()) {
-        if (model !== original.elements[index]) {
-          const { x, y, w, h } = model;
-          geometry.set(model.id, { x, y, w, h });
-        }
+        if (model === original.elements[index]) continue;
+        const { x, y, w, h } = model;
+        geometry.set(model.id, mode === 'move' ? { x, y } : { x, y, w, h });
+        if (mode === 'move' && (model.stackId || model.type === 'event')) floating.add(model.id);
       }
-      draft = { id: original.id, geometry };
+      const eligible = mode === 'move' && original.elements.some(model => geometry.has(model.id) && canStack(model));
+      const target = eligible && [...original.elements].reverse().find(model => model.type === 'stack' && canMove(model.id) &&
+        !geometry.has(model.id) && position.x >= model.x && position.x <= model.x + model.w &&
+        position.y >= model.y && position.y <= model.y + model.h);
+      draft = { id: original.id, geometry, floating, target, position, mode, displayed: original.elements };
       guides = nextGuides;
       paint();
     },
     commitDraft() {
-      const next = draftBoard();
+      const base = getBoard(), preview = draft;
+      let next = draftBoard();
+      if (preview?.id === base.id) {
+        if (preview.mode === 'move') {
+          let elements = placeInStack(next.elements, new Set(preview.geometry.keys()), preview.target, preview.position, preview.displayed);
+          if (base.kind === 'timeline') elements = elements.map(model =>
+            model.type === 'event' && preview.geometry.has(model.id) ? moveTimelineEvent(model, preview.displayed) : model);
+          next = { ...next, elements };
+        } else {
+          // Stack and timeline layout controls the visible position of their contents.
+          const originals = new Map(base.elements.map(model => [model.id, model]));
+          next = { ...next, elements: next.elements.map(model => {
+            const old = originals.get(model.id);
+            return model !== old && (model.stackId || model.type === 'event') ? { ...model, x: old.x, y: old.y } : model;
+          }) };
+        }
+      }
       clearDraft();
       commitBoard(next);
       paint(true);
@@ -443,6 +527,52 @@ async function start() {
     },
   };
 
+  function editConnection(key) {
+    selectLink(key);
+    if (!selectedConnection()) return;
+    showInspector();
+    $('inspector-body').querySelector('[aria-label="Connection label"]')?.focus();
+  }
+  function toggleStack(key) {
+    const model = getElement(key);
+    if (model?.type === 'stack') patch(key, { expanded: !model.expanded }, true);
+  }
+  function goTo(key) {
+    const target = elementIndex(project).get(key);
+    if (!target) return;
+    navigate(target.board.id);
+    const container = getElement(target.model.stackId);
+    if (container && !stackOpen(container) && canEdit(container.id)) toggleStack(container.id);
+    const shown = presentBoard(getBoard()).elements.find(model => model.id === key);
+    if (!shown) return report(new Error('Show the original layer or expand its stack to see this element.'));
+    const view = getView(), focus = center();
+    setView({ ...view, x: focus.x - (shown.x + shown.w / 2) * view.zoom, y: focus.y - (shown.y + shown.h / 2) * view.zoom });
+    selectElement(key);
+  }
+  const chooseTarget = bindPlanningPanels({ project: () => project, board: getBoard, selected: selectedIds, canEdit, commit, commitBoard });
+  bindVariableSuggestions(() => project.variables);
+  $('add-reference').onclick = () => chooseTarget('Reference an Element', key => {
+    if (elementIndex(project).has(key)) insert('reference', { ...centerWorld(), fromCenter: true }, { targetId: key });
+  }, { crossCanvas: true });
+  Object.assign(api, {
+    goTo, toggleStack,
+    layers: () => boardLayers(getBoard()),
+    moveToLayer(key, target) {
+      const layer = boardLayers(getBoard()).find(item => item.id === target);
+      if (layer && !layer.hidden && !layer.locked) patch(key, { layerId: target }, true);
+    },
+    linkElement(key) {
+      chooseTarget('Link an Element', targetId => patch(key, { targetId }, true), { exclude: key });
+    },
+  });
+  const floorEditor = bindFloorEditor({
+    view: getView, setView, variables: () => project.variables,
+    change(plan, undoable = true) {
+      const board = { ...getBoard(), plan };
+      if (undoable) commitBoard(board);
+      else assign(updateBoard(project, board));
+    },
+  });
   const gesture = bindGestures(api);
   bindContextDismissal();
   setupToolbarMenus();
@@ -454,12 +584,14 @@ async function start() {
   $('zoom-in').onclick = () => zoom(1.25);
   $('zoom-out').onclick = () => zoom(.8);
   $('zoom-reset').onclick = () => zoom(1, true);
-  $('fit').onclick = () => setView(fitView(getBoard().elements, canvas.clientWidth, canvas.clientHeight));
-  $('connect').onclick = toggleConnection;
-  $('select-all').onclick = selectAll;
+  $('fit').onclick = () => getBoard().plan ? floorEditor.fit() : setView(fitView(presentBoard(getBoard()).elements, canvas.clientWidth, canvas.clientHeight));
+  $('connect').onclick = $('map-route').onclick = toggleConnection;
+  $('map-marker').onclick = () => insert('marker', { ...centerWorld(), fromCenter: true });
+  $('timeline-event').onclick = () => insert('event', { ...centerWorld(), fromCenter: true });
+  $('select-all').onclick = () => getBoard().plan ? floorEditor.selectAll() : selectAll();
   $('undo').onclick = () => undo(false);
   $('redo').onclick = () => undo(true);
-  $('grid-toggle').onclick = () => commit({ ...project, settings: { ...project.settings, grid: !project.settings.grid } });
+  $('grid-toggle').onclick = () => getBoard().plan ? floorEditor.toggleGrid() : commit({ ...project, settings: { ...project.settings, grid: !project.settings.grid } });
   $('guides-toggle').onclick = () => commit({ ...project, settings: { ...project.settings, guides: !project.settings.guides } });
   $('help').onclick = () => $('help-dialog').showModal();
   function panel(control, target) {
@@ -482,21 +614,62 @@ async function start() {
 
   const picker = $('media-file');
   function chooseMedia(model) {
+    if (!canEdit(model.id)) return;
     mediaRequest = { model, board: active() };
     picker.accept = accepts[model.type];
     picker.click();
+  }
+  $('map-image').onclick = () => {
+    mediaRequest = { map: true, board: active() };
+    picker.accept = accepts.image;
+    picker.click();
+  };
+  function setMapImage(file, boardId) {
+    return trackImport(async () => {
+      const original = project.boards[boardId];
+      const originalImage = original?.elements.find(model => model.id === original.background);
+      const media = await storeMedia(file, repository, 'image');
+      const board = project.boards[boardId];
+      if (board?.kind !== 'map' || board.background !== original?.background) return;
+      const layer = originalImage ? boardLayers(board).find(layer => layer.id === layerId(originalImage)) : insertionLayer(board);
+      if (!layer || layer.locked || layer.hidden) throw new Error('Show and unlock the map image layer before editing it.');
+      const existing = board.elements.find(model => model.id === board.background);
+      if (existing && existing.asset !== originalImage?.asset) return;
+      const image = { ...(existing ?? makeElement('image', 35, 35, {
+        w: Math.max(24, Math.min(880, 620 * (media.ratio ?? 1.5))),
+        h: Math.max(24, Math.min(620, 880 / (media.ratio ?? 1.5))), layerId: layer.id,
+      })), ratio: undefined, ...media };
+      const elements = existing ? board.elements.map(model => model.id === existing.id ? image : model) : [image, ...board.elements];
+      commit(updateBoard(project, { ...board, background: image.id, elements }));
+    });
   }
   picker.addEventListener('change', () => {
     const file = picker.files[0], request = mediaRequest;
     picker.value = '';
     mediaRequest = undefined;
-    if (file && request) task(uploadMedia)(file, request.board, request.model);
+    if (file && request) {
+      if (request.map) task(setMapImage)(file, request.board);
+      else task(uploadMedia)(file, request.board, request.model);
+    }
   });
   picker.addEventListener('cancel', () => { mediaRequest = undefined; });
 
+  const mapDialog = $('map-type-dialog');
   function insertAt(type, position, editText = false) {
+    if (type === 'map') {
+      const board = active();
+      mapDialog.returnValue = '';
+      mapDialog.addEventListener('close', () => {
+        const choice = mapDialog.returnValue;
+        if (active() !== board) return;
+        if (choice === 'plan') insert(type, position, { title: 'Untitled Floor Plan' }, makePlan());
+        else if (choice === 'world') insert(type, position);
+      }, { once: true });
+      mapDialog.showModal();
+      return;
+    }
     const model = insert(type, position);
-    if (editText && type === 'text') edit(model.id);
+    if (model && editText && type === 'text') edit(model.id);
   }
   const toolbar = document.querySelector('.format-toolbar');
   bindToolbarDrag(toolbar, canvas, (type, event) => {
@@ -543,6 +716,12 @@ async function start() {
     clearFileDrop();
     const files = [...event.dataTransfer.files];
     if (!files.length) return;
+    if (getBoard().plan) return;
+    if (getBoard().kind === 'map') {
+      if (files.length === 1) task(setMapImage)(files[0], active());
+      else report(new Error('Drop one image to use as the map background.'));
+      return;
+    }
     const target = mediaTarget(event);
     if (target) {
       const model = getElement(target.dataset.element);
@@ -563,7 +742,7 @@ async function start() {
     if (!canUseShortcuts(event) || !selectedIds().size) return;
     event.preventDefault();
     copySelection(project, selectedIds(), event.clipboardData);
-    if (cut) task(deleteSelection)();
+    if (cut) task(deleteSelection)(true);
   }
   document.addEventListener('copy', copy);
   document.addEventListener('cut', event => copy(event, true));
@@ -612,6 +791,7 @@ async function start() {
     const link = event.target.closest('[data-connection]')?.dataset.connection;
     const doPaste = task(() => paste(readClipboard(), position));
     if (key) {
+      if (!canEdit(key)) return;
       selectElement(key, false, true);
       const model = getElement(key);
       const editAction = model.type === 'canvas' || model.title !== undefined && model.type !== 'note' ? () => {
@@ -619,18 +799,18 @@ async function start() {
         $('inspector-body').querySelector('input[type=text]')?.focus();
       } : () => activate(key);
       const items = [
-        ...(model.type === 'canvas' ? [['Open Nested Canvas', () => navigate(model.boardId)]] : []),
+        ...(WORKSPACES.includes(model.type) ? [[`Open ${LABEL[model.type]}`, () => navigate(model.boardId)]] : []),
         ...(MEDIA_TYPES.includes(model.type) ? [[`${model.asset ? 'Replace' : 'Upload'} ${LABEL[model.type]}`, () => chooseMedia(model)]] : [['Edit', editAction]]), ['Duplicate', duplicate], ['Copy', () => copySelection(project, selectedIds())],
-        ['Cut', task(async () => { copySelection(project, selectedIds()); await deleteSelection(); })],
+        ['Cut', task(async () => { copySelection(project, selectedIds()); await deleteSelection(true); })],
         ['Paste', doPaste], ['Delete', task(deleteSelection)], ['Bring Forward', () => moveLayer(true)],
         ['Send Backward', () => moveLayer(false)], ['Color and Style', showInspector],
       ];
       showContext(event, items);
     } else if (link) {
       selectLink(link);
-      showContext(event, [['Edit Connection', showInspector], ['Delete', task(deleteSelection)]]);
+      showContext(event, [['Edit Connection', () => editConnection(link)], ['Delete', task(deleteSelection)]]);
     } else showContext(event, [
-      ...['text', 'note', 'list', 'canvas', 'shape', 'image', 'audio', 'video'].map(type => [`Add ${LABEL[type]}`, () => insertAt(type, position, true)]),
+      ...(getBoard().kind === 'map' ? ['marker'] : getBoard().kind === 'timeline' ? ['event'] : ['text', 'note', 'list', 'canvas', 'shape', 'image', 'audio', 'video', 'stack', 'map', 'timeline']).map(type => [`Add ${LABEL[type]}`, () => insertAt(type, position, true)]),
       ['Paste', doPaste],
     ]);
   });
@@ -678,7 +858,7 @@ async function start() {
     clearInterval(backupTimer);
     if (!backupOptions?.enabled) return;
     backupTimer = setInterval(task(async () => {
-      if (project.boards === lastBackedUp?.boards && project.title === lastBackedUp?.title && project.settings === lastBackedUp?.settings) return;
+      if (project.boards === lastBackedUp?.boards && project.title === lastBackedUp?.title && project.settings === lastBackedUp?.settings && project.variables === lastBackedUp?.variables) return;
       const saved = project;
       await snapshot(saved, 'Automatic Backup');
       lastBackedUp = saved;
@@ -703,8 +883,9 @@ async function start() {
         const { exportCanvas } = await import('./export-canvas.js');
         blob = await exportCanvas(saved, board, repository, kind);
       }
-      const title = board.id === saved.root ? saved.title : parents(saved).get(board.id).element.title;
-      await download(blob, fileName(kind === 'plf' ? saved.title : title, kind));
+      const title = resolveText(board.id === saved.root ? saved.title : parents(saved).get(board.id).element.title, saved.variables);
+      const floorName = board.plan?.floors.find(floor => floor.id === board.plan.active)?.name;
+      await download(blob, fileName(kind === 'plf' ? saved.title : floorName ? `${title} - ${floorName}` : title, kind));
     } finally {
       exporting = false;
       $('save-state').textContent = saving.dirty ? 'Saving locally…' : 'Saved locally';

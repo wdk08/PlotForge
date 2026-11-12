@@ -1,4 +1,4 @@
-# PlotForge 1.0.0
+# PlotForge 1.1.0
 
 PlotForge is Forge Studios' local-first visual story planner. Open a project from the library to get a freeform canvas for notes, text, checklists, shapes, connections, images, audio, and video. A nested canvas is an element on its parent. Double-click its card to enter it, and use Back, breadcrumbs, or the canvas tree to return.
 

@@ -9,6 +9,8 @@ const versionPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 const requiredSecrets = ['TAURI_SIGNING_PRIVATE_KEY', 'TAURI_SIGNING_PRIVATE_KEY_PASSWORD'];
 const args = process.argv.slice(2);
 const first = args[0] === '--first';
+const prepared = args[0] === '--prepared';
+const currentVersion = first || prepared;
 const read = path => readFileSync(path, 'utf8');
 const output = (file, args) => execFileSync(file, args, { encoding: 'utf8' }).trim();
 const git = (...args) => output('git', args);
@@ -47,10 +49,10 @@ function bumpFiles(current, next) {
 
 async function release() {
   if (args.includes('--help')) {
-    console.log('npm run release          Choose a patch, minor, major or custom version.\nnpm run release -- --first   Release the current 1.0.0 commit after main is pushed.');
+    console.log('npm run release          Choose a patch, minor, major or custom version.\nnpm run release -- --first   Release the current 1.0.0 commit after main is pushed.\nnpm run release -- --prepared   Release the current version without bumping it again.');
     return;
   }
-  require(!args.length || first && args.length === 1, 'Use npm run release -- --help.');
+  require(!args.length || currentVersion && args.length === 1, 'Use npm run release -- --help.');
   require(process.stdin.isTTY, 'Run the release command in an interactive terminal.');
   require(!git('status', '--porcelain', '--untracked-files=all'), 'Commit or set aside local changes before releasing.');
   require(git('branch', '--show-current') === 'main', 'Run from the main branch.');
@@ -62,16 +64,22 @@ async function release() {
   run('git', ['fetch', 'origin', 'main', '--tags']);
   require(git('rev-parse', 'HEAD') === git('rev-parse', 'origin/main'), 'Synchronize local main with origin/main before releasing.');
   const current = JSON.parse(read('package.json')).version;
+  const prior = git('tag', '--list', 'v*', '--sort=-version:refname').split('\n').find(tag => versionPattern.test(tag.slice(1)));
+  if (prepared) {
+    const next = components(current), previous = prior && components(prior.slice(1));
+    const difference = previous ? next.findIndex((value, i) => value !== previous[i]) : -1;
+    require(difference >= 0 && next[difference] > previous[difference], 'The prepared version must be newer than the latest release tag.');
+  }
   if (first) require(current === '1.0.0' && !git('tag', '--list', 'v*'), 'The first release requires version 1.0.0 and no existing version tags.');
 
   const prompt = createInterface({ input: process.stdin, output: process.stdout });
   const originals = new Map();
   let changed, committed = false;
   try {
-    const choice = first ? current : (await prompt.question('Choose patch, minor, major, or enter a custom X.Y.Z version: ')).trim();
+    const choice = currentVersion ? current : (await prompt.question('Choose patch, minor, major, or enter a custom X.Y.Z version: ')).trim();
     const next = versionFor(choice, current);
     const nextParts = components(next);
-    if (!first) {
+    if (!currentVersion) {
       const oldParts = components(current);
       const difference = nextParts.findIndex((part, i) => part !== oldParts[i]);
       require(difference >= 0 && nextParts[difference] > oldParts[difference], 'Choose a version newer than the current release.');
@@ -79,7 +87,7 @@ async function release() {
     const tag = `v${next}`;
     require(!git('tag', '--list', tag) && !git('ls-remote', '--tags', 'origin', `refs/tags/${tag}`), `${tag} already exists.`);
     run(process.execPath, ['scripts/plot/release-config.mjs']);
-    if (!first) {
+    if (!currentVersion) {
       changed = bumpFiles(current, next);
       for (const [path, value] of changed) {
         originals.set(path, read(path));

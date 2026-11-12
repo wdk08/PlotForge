@@ -61,14 +61,43 @@ test('desktop updater waits for approval, reports progress and saves before inst
     };
   });
   await page.getByRole('button', { name: 'Settings' }).click();
-  await page.getByRole('button', { name: 'Check for Updates' }).click();
-  await prompt.getByRole('button', { name: 'Update Now' }).click();
-  const dialog = page.locator('.plot-update-dialog');
+  await page.getByRole('button', { name: 'About PlotForge' }).click();
+  const about = page.locator('#about-plotforge');
+  await expect(about).toContainText('Version 1.0.0');
+  await about.getByRole('button', { name: 'Check for Updates' }).click();
+  const dialog = page.locator('#plotforge-update');
+  await dialog.getByRole('button', { name: 'Update Now' }).click();
   await expect(dialog.getByRole('status')).toContainText('50%');
   await expect(dialog.getByRole('alert')).toContainText('Test save failed.');
   expect(await page.evaluate(() => window.updateCalls)).not.toContain('plot_update_install');
   await dialog.getByRole('button', { name: 'Retry' }).click();
-  await expect.poll(() => page.evaluate(() => window.updateCalls.slice(-4))).toEqual([
-    'plot_update_download', 'flush', 'plot_update_install', 'plot_update_restart',
+  await dialog.getByRole('button', { name: 'Restart Now' }).click();
+  expect(await page.evaluate(() => window.updateCalls.slice(-4))).toEqual([
+    'flush', 'plot_update_install', 'flush', 'plot_update_restart',
   ]);
+});
+
+test('manual desktop update checks remain available after an empty startup check', async ({ page }) => {
+  await page.addInitScript(() => {
+    window.updateChecks = [];
+    window.__TAURI__ = {
+      event: { async listen() { return () => {}; } },
+      core: { async invoke(command, args) {
+        if (command === 'plot_storage') return args.action === 'list' ? [] : null;
+        if (command === 'plot_update_info') return { enabled: true, version: '1.1.0', platform: 'macos' };
+        if (command === 'plot_update_check') {
+          window.updateChecks.push(args.automatic);
+          return null;
+        }
+      } },
+    };
+  });
+  await page.goto('/');
+  await expect.poll(() => page.evaluate(() => window.updateChecks)).toEqual([true]);
+  await expect(page.locator('.plot-update-prompt')).toBeHidden();
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await page.getByRole('button', { name: 'About PlotForge' }).click();
+  await page.locator('#about-plotforge').getByRole('button', { name: 'Check for Updates' }).click();
+  await expect(page.locator('#plotforge-update')).toContainText('PlotForge Is Up to Date');
+  expect(await page.evaluate(() => window.updateChecks)).toEqual([true, false]);
 });

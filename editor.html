@@ -43,6 +43,7 @@
     <span class="toolbar-divider"></span>
     <button id="outline-toggle" aria-pressed="true">☷ <span>Canvases</span></button>
     <button id="inspector-toggle" aria-pressed="true">◫ <span>Inspector</span></button>
+    <button id="variables">Variables</button><button id="layers">Layers</button>
     <span class="bar-spacer"></span>
     <button id="help" class="help-button">Keyboard guide <span aria-hidden="true">?</span></button>
   </nav>
@@ -51,7 +52,26 @@
     <button data-insert="text"><b>T</b> Text</button><button data-insert="note"><b>▤</b> Note</button><button data-insert="list"><b>☷</b> List</button>
     <button data-insert="image"><b>▧</b> Image</button><button data-insert="audio"><b>♫</b> Audio</button><button data-insert="video"><b>▷</b> Video</button>
     <button data-insert="shape"><b>◇</b> Shape</button><button data-insert="canvas"><b>▦</b> Nested Canvas</button>
+    <button data-insert="stack"><b>▱</b> Stack</button><button data-insert="map"><b>⌖</b> Map</button><button data-insert="timeline"><b>↦</b> Timeline</button>
+    <button id="add-reference"><b>↗</b> Reference</button>
     <span class="toolbar-divider"></span><button id="connect" aria-pressed="false"><b>↗</b> Connect</button>
+  </nav>
+  <nav class="format-toolbar workspace-tools" id="map-tools" aria-label="Map tools" hidden>
+    <span class="toolbar-label">MAP</span><button id="map-image">Upload Map Image</button><button id="map-marker">Add Location</button><button id="map-route" aria-pressed="false">Draw Route</button>
+  </nav>
+  <div id="floor-tools" hidden>
+    <nav class="format-toolbar floor-workspace-tools" aria-label="Floor plan tools">
+      <div id="floor-drawing-tools"></div><span id="floor-variant" hidden></span>
+      <div class="floor-settings">
+        <label class="plot-field">Floor <select id="floor-picker"></select></label>
+        <button id="floor-add">Add Floor</button><button id="floor-rename">Rename</button><button id="floor-delete">Delete Floor</button>
+        <label class="plot-field">View <select id="floor-style"><option value="blueprint">Blueprint</option><option value="furnished">Furnished</option></select></label>
+      </div>
+    </nav>
+    <nav class="format-toolbar floor-workspace-tools" id="floor-furniture" aria-label="Furniture library" hidden></nav>
+  </div>
+  <nav class="format-toolbar workspace-tools" id="timeline-tools" aria-label="Timeline tools" hidden>
+    <span class="toolbar-label">TIMELINE</span><button id="timeline-event">Add Event</button>
   </nav>
   <nav class="canvas-navigation" aria-label="Canvas path"><button id="back" class="quiet-button" hidden>← Back</button><ol id="breadcrumbs"></ol></nav>
   <div id="save-error" class="document-banner" hidden><span id="save-error-message"></span><button id="retry-save" class="secondary-button">Retry Save</button></div>
@@ -63,6 +83,7 @@
     </aside>
     <section id="plot-canvas" aria-label="Infinite canvas" tabindex="0">
       <div id="plot-stage"></div><svg id="plot-links" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"></svg>
+      <svg id="floor-scene" xmlns="http://www.w3.org/2000/svg" aria-label="Floor plan drawing" hidden></svg>
       <p id="canvas-hint">Drag an element from the toolbar or drop a media file here.</p>
       <div id="zoom-controls" aria-label="Zoom controls">
         <button id="zoom-out" aria-label="Zoom out">−</button><button id="zoom-reset" title="Reset zoom to 100%" aria-label="Reset zoom to 100%">100%</button>
@@ -77,6 +98,17 @@
   <div id="context-menu" role="menu" hidden></div>
   <input id="media-file" type="file" hidden>
   <div id="notice" class="notice" role="alert" hidden></div>
+  <dialog id="map-type-dialog" aria-labelledby="map-type-title">
+    <form method="dialog">
+      <h1 id="map-type-title">New Map</h1>
+      <p>Choose a floor plan to draw a building, or a world map for images, locations, and routes.</p>
+      <div class="dialog-actions">
+        <button class="quiet-button" value="cancel">Cancel</button>
+        <button class="secondary-button" value="world">World Map</button>
+        <button class="primary-button" value="plan" autofocus>Floor Plan</button>
+      </div>
+    </form>
+  </dialog>
   <dialog id="prompt-dialog">
     <form method="dialog">
       <h1 id="prompt-title"></h1><p id="prompt-message"></p>
@@ -89,7 +121,7 @@
     <h1>Settings</h1>
     <section class="settings-section"><h2>Appearance</h2><div class="appearance-options"><label><input type="radio" name="appearance" value="light"> Light</label><label><input type="radio" name="appearance" value="dark"> Dark</label><label><input type="radio" name="appearance" value="system"> System</label></div></section>
     <section class="settings-section"><h2>Backups</h2><fieldset id="backup-fields"><label><input id="backups-enabled" type="checkbox"> Automatic backups</label><p><label>Backup interval <select id="backup-interval"><option value="1">Every minute</option><option value="5">Every 5 minutes</option><option value="10">Every 10 minutes</option><option value="15">Every 15 minutes</option><option value="30">Every 30 minutes</option></select></label></p></fieldset><p>Backups and autosave are local to this device.</p><button id="settings-versions" class="secondary-button">Open Version History</button></section>
-    <form method="dialog" class="dialog-actions"><button id="check-updates" type="button" class="quiet-button" hidden>Check for Updates</button><button class="primary-button">Done</button></form>
+    <form method="dialog" class="dialog-actions"><button id="about-app" type="button" class="quiet-button">About PlotForge</button><button id="check-updates" type="button" class="quiet-button" hidden>Check for Updates</button><button class="primary-button">Done</button></form>
   </dialog>
   <dialog id="help-dialog">
     <form method="dialog"><button class="dialog-close" aria-label="Close keyboard guide">×</button></form>
@@ -106,6 +138,30 @@
     <p>Local snapshots include every canvas and its media references.</p>
     <div id="version-list" class="version-list"></div>
     <div class="dialog-actions"><button id="version-create" class="secondary-button">Back Up Now</button></div>
+  </dialog>
+  <dialog id="variables-dialog" aria-labelledby="variables-heading">
+    <form method="dialog"><button class="dialog-close" aria-label="Close variables">×</button></form>
+    <h1 id="variables-heading">Project Variables</h1>
+    <div id="variable-list" class="version-list"></div>
+    <form id="variable-form" class="planning-form">
+      <label class="plot-field">Name <input id="variable-name" required maxlength="64" autocomplete="off"></label>
+      <label class="plot-field">Value <input id="variable-value" maxlength="4000"></label>
+      <p id="variable-error" role="alert"></p>
+      <div class="dialog-actions"><button type="button" class="quiet-button" id="variable-new">New Variable</button><button type="button" id="variable-delete" hidden>Delete</button><button class="primary-button">Save Variable</button></div>
+    </form>
+  </dialog>
+  <dialog id="layers-dialog" aria-labelledby="layers-heading">
+    <form method="dialog"><button class="dialog-close" aria-label="Close layers">×</button></form>
+    <h1 id="layers-heading">Canvas Layers</h1>
+    <p>Deleting a layer moves its elements to the default layer.</p>
+    <div id="layer-list" class="version-list"></div>
+    <button class="secondary-button" id="layer-add">Add Layer</button>
+  </dialog>
+  <dialog id="element-target-dialog" aria-labelledby="element-target-title">
+    <form method="dialog"><button class="dialog-close" aria-label="Close element picker">×</button></form>
+    <h1 id="element-target-title"></h1>
+    <label class="plot-field">Search elements <input id="element-target-search" type="search"></label>
+    <div id="element-targets" class="version-list"></div>
   </dialog>
 </body>
 </html>

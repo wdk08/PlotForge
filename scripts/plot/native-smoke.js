@@ -17,6 +17,11 @@
       return;
     }
     await wait(() => !document.body.classList.contains('loading'));
+    const info = await invoke('plot_update_info');
+    find('#settings').click();
+    find('#about-app').click();
+    await wait(() => find('#about-plotforge[open] [data-version]')?.textContent === `Version ${info.version}`);
+    find('#about-plotforge .quiet-button').click();
     find('[data-insert=canvas]').click();
     (await wait(() => find('[data-type=canvas]'))).dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
     await wait(() => find('#back:not([hidden])'));

@@ -24,6 +24,8 @@ Review and commit the PlotForge release source, then push `main`. Once `main` is
 
 Run `npm run release` from clean, synchronized `main`. Choose patch, minor, major, or enter a stable custom version. The command synchronizes version files and runs browser build and native tests. Confirm the displayed tag to commit the version, create the tag, and push them atomically.
 
+For a version already prepared in the source, run `npm run release -- --prepared` from clean, synchronized `main` to validate and tag it without a second bump.
+
 Watch the [PlotForge release workflow](https://github.com/wdk08/PlotForge/actions/workflows/release.yml) for Apple Silicon and Intel macOS DMGs and the Windows x64 NSIS installer. The workflow keeps the release in draft until all signed updater packages, their versions, and the three installer links pass validation. Download the installers from [GitHub Releases](https://github.com/wdk08/PlotForge/releases).
 
 Updater signatures authenticate PlotForge updates independently of OS signing. This workflow uses ad-hoc macOS signing and an unsigned Windows publisher identity. Gatekeeper and Windows reputation or application-control settings can require local approval or block installation.

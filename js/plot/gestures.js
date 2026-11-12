@@ -13,7 +13,7 @@ const pan = value => clamp(value, -WORLD * 10, WORLD * 10);
 export function bindGestures(editor) {
   const canvas = $('plot-canvas');
   const pointers = new Map();
-  let gesture, space = false, lastTap, safariPinch;
+  let gesture, space = false, lastTap, lastLinkClick, safariPinch;
   const position = event => {
     const rect = canvas.getBoundingClientRect();
     return { x: event.clientX - rect.left, y: event.clientY - rect.top };
@@ -70,11 +70,19 @@ export function bindGestures(editor) {
       return;
     }
     if (!panTool && !resize && link) {
-      editor.selectLink(link.dataset.connection);
+      const key = link.dataset.connection, now = performance.now();
+      if (lastLinkClick?.key === key && now - lastLinkClick.at < 400 && distance(lastLinkClick.position, pos) < 12) {
+        lastLinkClick = undefined;
+        editor.editConnection(key);
+      } else {
+        lastLinkClick = { key, at: now, position: pos };
+        editor.selectLink(key);
+      }
       pointers.delete(event.pointerId);
       return;
     }
     const key = target?.dataset.element;
+    if (key && !panTool && !editor.canEdit(key)) { pointers.delete(event.pointerId); return; }
     if (!panTool && key && !resize) {
       editor.selectElement(key, event.shiftKey || event.metaKey || event.ctrlKey, true);
       if (!editor.selectedIds().has(key)) {
@@ -82,14 +90,16 @@ export function bindGestures(editor) {
         return;
       }
     }
+    if (resize && !panTool && !editor.canMove(key)) { pointers.delete(event.pointerId); return; }
     const mode = panTool ? 'pan' : resize ? 'resize' : key ? 'move' : event.pointerType === 'touch' ? 'pan' : 'marquee';
     const view = editor.getView(), board = editor.getBoard();
     const selected = editor.selectedIds();
     gesture = { mode, key, view, board, selected, start: pos, pointer: event.pointerId, moved: false };
     if (mode === 'move') {
-      gesture.moving = board.elements.filter(model => selected.has(model.id));
+      gesture.moving = board.elements.filter(model => selected.has(model.id) && !selected.has(model.stackId) && editor.canMove(model.id));
+      gesture.movingIds = new Set(gesture.moving.map(model => model.id));
       gesture.others = board.elements.filter(model => !selected.has(model.id));
-    } else if (mode === 'resize') gesture.model = editor.getElement(key);
+    } else if (mode === 'resize') gesture.model = board.elements.find(model => model.id === key);
     else if (mode === 'marquee') {
       gesture.previous = selected;
       gesture.selected = event.shiftKey ? selected : new Set();
@@ -122,10 +132,11 @@ export function bindGestures(editor) {
       canvas.classList.add('panning');
       editor.setView({ ...view, x: pan(view.x + dx), y: pan(view.y + dy) }, false);
     } else if (mode === 'move') {
+      if (!current.moving.length) return;
       const snap = editor.guidesEnabled() && !event.altKey ? snapMove(current.moving, current.others, dx / view.zoom, dy / view.zoom, view.zoom)
         : { dx: dx / view.zoom, dy: dy / view.zoom };
-      const elements = board.elements.map(model => current.selected.has(model.id) ? { ...model, x: point(model.x + snap.dx), y: point(model.y + snap.dy) } : model);
-      editor.previewBoard(board, elements, snap);
+      const elements = board.elements.map(model => current.movingIds.has(model.id) ? { ...model, x: point(model.x + snap.dx), y: point(model.y + snap.dy) } : model);
+      editor.previewBoard(board, elements, snap, 'move', worldAt(view, pos.x, pos.y));
     } else if (mode === 'resize') {
       const next = resizeElement(current.model, dx / view.zoom, dy / view.zoom, event.altKey);
       editor.previewBoard(board, board.elements.map(model => model.id === next.id ? next : model));
@@ -140,6 +151,8 @@ export function bindGestures(editor) {
   window.addEventListener('pointerup', event => finish(event, false));
   window.addEventListener('pointercancel', event => finish(event, true));
   canvas.addEventListener('dblclick', event => {
+    const link = event.target.closest('[data-connection]')?.dataset.connection;
+    if (link) { editor.editConnection(link); return; }
     const key = event.target.closest('[data-element]')?.dataset.element;
     if (key && !event.target.closest(INTERACTIVE)) editor.activate(key);
   });

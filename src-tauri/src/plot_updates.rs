@@ -75,7 +75,11 @@ pub async fn plot_update_check(
     Ok(pending
         .update
         .as_ref()
-        .map_or(Value::Null, |update| json!({ "version": update.version })))
+        .map_or(Value::Null, |update| json!({
+            "version": update.version,
+            "notes": update.body,
+            "phase": if pending.installed { "installed" } else if pending.bytes.is_some() { "downloaded" } else { "available" }
+        })))
 }
 
 #[tauri::command]
@@ -148,6 +152,55 @@ pub async fn plot_update_restart(app: AppHandle, state: State<'_, Updates>) -> R
         .closing
         .store(true, Ordering::SeqCst);
     app.restart();
+}
+
+pub fn menu(app: &AppHandle) -> tauri::Result<()> {
+    use tauri::menu::{Menu, MenuItem, MenuItemKind};
+    let menu = Menu::default(app)?;
+    for item in menu.items()? {
+        if let MenuItemKind::Submenu(submenu) = item {
+            if submenu.text()? == "Help" {
+                submenu.append(&MenuItem::with_id(
+                    app,
+                    "plotforge-check",
+                    "Check for Updates",
+                    true,
+                    None::<&str>,
+                )?)?;
+                submenu.append(&MenuItem::with_id(
+                    app,
+                    "plotforge-about",
+                    "About PlotForge",
+                    true,
+                    None::<&str>,
+                )?)?;
+            }
+            #[cfg(target_os = "macos")]
+            if submenu.text()? == app.package_info().name {
+                submenu.remove_at(0)?;
+                submenu.insert(
+                    &MenuItem::with_id(
+                        app,
+                        "plotforge-app-about",
+                        "About PlotForge",
+                        true,
+                        None::<&str>,
+                    )?,
+                    0,
+                )?;
+            }
+        }
+    }
+    app.set_menu(menu)?;
+    app.on_menu_event(|app, event| {
+        let action = match event.id().as_ref() {
+            "plotforge-check" => "check",
+            "plotforge-about" | "plotforge-app-about" => "about",
+            _ => return,
+        };
+        let _ = app.emit("plotforge-help", action);
+    });
+    Ok(())
 }
 
 #[cfg(test)]

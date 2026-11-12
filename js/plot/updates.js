@@ -1,15 +1,37 @@
 import { desktopInvoke } from '../desktop.js';
-import { $, button, element } from './common.js';
+import { version } from '../../package.json';
+import logo from '../../src-tauri/icons/128x128.png';
+import { $, button, element, task } from './common.js';
 
 export async function setupUpdates(environment = window) {
   const invoke = desktopInvoke(environment);
   const events = environment.__TAURI__?.event;
-  if (!invoke || !events?.listen) return;
-  const info = await invoke('plot_update_info');
-  if (!info.enabled) return;
-
+  const info = await invoke?.('plot_update_info').catch(() => null) ?? { version, enabled: false };
+  const settings = $('settings-dialog');
   const checkButton = $('check-updates');
-  checkButton.hidden = false;
+  const about = element('dialog', 'plot-update-dialog');
+  about.id = 'about-plotforge';
+  about.innerHTML = '<h1>About PlotForge</h1><p data-version></p><p>A visual story planner for organizing projects, canvases, and media.</p><details><summary>License and source code</summary><p>Copyright © 2026 wdk08. PlotForge is free software under GPLv3, without warranty. Corresponding source is available with official releases.</p><button type="button" data-license>Read License</button><pre hidden></pre></details>';
+  const mark = element('img');
+  Object.assign(mark, { src: logo, alt: '', width: 64, height: 64 });
+  about.prepend(mark);
+  about.querySelector('[data-version]').textContent = `Version ${info.version}`;
+  about.querySelector('[data-license]').onclick = task(async () => {
+    const text = about.querySelector('pre');
+    text.textContent = (await import('../../LICENSE?raw')).default;
+    text.hidden = false;
+  });
+  const aboutActions = element('div', 'dialog-actions');
+  aboutActions.append(button('Close', () => about.close(), 'quiet-button'));
+  if (invoke) aboutActions.append(button('Check for Updates', () => { about.close(); void check(false); }, 'primary-button'));
+  about.append(aboutActions);
+  document.body.append(about);
+  $('about-app').onclick = () => { settings.close(); showAbout(); };
+  function showAbout() {
+    if (!document.querySelector('dialog[open]')) about.showModal();
+  }
+  if (!invoke || !events?.listen) return;
+
   const prompt = element('section', 'plot-update-prompt');
   prompt.hidden = true;
   prompt.setAttribute('aria-label', 'PlotForge updates');
@@ -18,84 +40,145 @@ export async function setupUpdates(environment = window) {
   const laterKey = 'plotforge-update-later';
   let deferredVersion;
   try { deferredVersion = environment.sessionStorage.getItem(laterKey); } catch {}
-  const later = button('Later', () => {
+  function defer() {
     if (update) {
       deferredVersion = update.version;
       try { environment.sessionStorage.setItem(laterKey, deferredVersion); } catch {}
     }
     prompt.hidden = true;
-  }, 'quiet-button');
-  const now = button('Update Now', install, 'primary-button');
-  prompt.append(headline, later, now);
+    if (dialog.open) dialog.close();
+  }
+  prompt.append(headline, button('Later', defer, 'quiet-button'), button('Update Now', () => startDownload(), 'primary-button'));
+
   const dialog = element('dialog', 'plot-update-dialog');
-  dialog.append(element('h1', null, 'Updating PlotForge'));
-  const progress = element('progress');
-  progress.setAttribute('aria-label', 'Download progress');
-  const status = element('p');
-  status.setAttribute('role', 'status');
-  const error = element('p');
-  error.setAttribute('role', 'alert');
+  dialog.id = 'plotforge-update';
+  dialog.innerHTML = '<h1></h1><p data-summary></p><section data-notes><h2>What’s New</h2><pre></pre></section><progress aria-label="Update download progress"></progress><p data-status role="status"></p><p data-error role="alert"></p>';
+  const progress = dialog.querySelector('progress'), status = dialog.querySelector('[data-status]');
+  const error = dialog.querySelector('[data-error]');
   const actions = element('div', 'dialog-actions');
-  const retry = button('Retry', install, 'primary-button');
-  const close = button('Close', () => dialog.close(), 'quiet-button');
-  actions.append(close, retry);
-  dialog.append(progress, status, error, actions);
+  const primary = button('', null, 'primary-button');
+  const later = button('Close', () => phase === 'available' ? defer() : dialog.close(), 'quiet-button');
+  actions.append(later, primary);
+  dialog.append(actions);
   document.body.append(prompt, dialog);
 
-  let update, busy = false, checking = false, active = true, unsubscribe, generation = 0;
-  const settings = $('settings-dialog');
+  let update, phase = 'idle', busy = false, checking, active = true, releases = [], generation = 0;
+  checkButton.hidden = false;
   checkButton.onclick = () => { settings.close(); void check(false); };
-  dialog.addEventListener('cancel', event => { if (busy) event.preventDefault(); });
+  dialog.addEventListener('cancel', event => {
+    if (busy) event.preventDefault();
+    else if (phase === 'available') { event.preventDefault(); defer(); }
+  });
+
+  function show(next, message = '', failure = '') {
+    if (!active) return;
+    phase = next;
+    const titles = {
+      checking: 'Checking for Updates', available: 'PlotForge Update Available',
+      downloading: 'Downloading Update', downloaded: 'Update Ready to Install',
+      saving: 'Saving Your Work', installing: 'Installing Update',
+      installed: 'Update Ready', restarting: 'Restarting PlotForge',
+      current: 'PlotForge Is Up to Date', error: 'Could Not Check for Updates',
+      downloadError: 'Could Not Download Update', installError: 'Could Not Install Update',
+    };
+    dialog.querySelector('h1').textContent = titles[next];
+    dialog.querySelector('[data-summary]').textContent = update ? `PlotForge v${update.version} · Installed v${info.version}` : `Installed v${info.version}`;
+    dialog.querySelector('[data-notes]').hidden = !update?.notes;
+    dialog.querySelector('pre').textContent = update?.notes ?? '';
+    progress.hidden = next !== 'downloading';
+    if (!progress.hidden) progress.removeAttribute('value');
+    status.textContent = message;
+    error.textContent = failure;
+    const command = {
+      available: ['Update Now', startDownload], downloaded: ['Install and Restart', install],
+      installed: ['Restart Now', restart], downloadError: ['Retry', startDownload], installError: ['Retry', install],
+    }[next];
+    primary.hidden = !command;
+    primary.textContent = command?.[0] ?? '';
+    primary.onclick = command?.[1] ?? null;
+    later.textContent = next === 'available' ? 'Later' : next === 'installed' ? 'Restart Later' : 'Close';
+    later.disabled = busy || next === 'checking';
+    if (!dialog.open && !document.querySelector('dialog[open]')) dialog.showModal();
+  }
 
   async function check(automatic) {
-    if (checking || busy) return;
-    checking = true;
-    checkButton.disabled = true;
+    if (!active || busy) return;
+    if (!automatic) show('checking');
+    if (!info.enabled) {
+      if (!automatic) show('error', '', 'Update checks are available in the installed distribution.');
+      return;
+    }
+    const pending = checking ??= invoke('plot_update_check', { automatic });
     try {
-      update = await invoke('plot_update_check', { automatic });
-      if (!active || automatic && (!update || deferredVersion === update.version)) return;
-      headline.textContent = update ? `PlotForge v${update.version} is available.` : `PlotForge v${info.version} is up to date.`;
-      now.hidden = !update;
-      later.textContent = update ? 'Later' : 'Close';
-      prompt.hidden = false;
+      update = await pending;
+      if (!active) return;
+      if (automatic) {
+        if (dialog.open || !update || deferredVersion === update.version) return;
+        headline.textContent = `PlotForge v${update.version} is available.`;
+        prompt.hidden = false;
+      } else {
+        prompt.hidden = true;
+        show(update?.phase ?? (update ? 'available' : 'current'), update ? '' : 'You’re running the latest version.');
+      }
     } catch (failure) {
-      if (!active || automatic) return;
-      headline.textContent = `Could not check for updates. ${failure?.message ?? failure}`;
-      now.hidden = true;
-      later.textContent = 'Close';
-      prompt.hidden = false;
+      if (!automatic) show('error', '', failure?.message ?? String(failure));
     } finally {
-      checking = false;
-      checkButton.disabled = false;
+      if (checking === pending) checking = undefined;
     }
   }
 
-  async function install() {
-    if (busy || !active || !update || document.querySelector('dialog[open]:not(.plot-update-dialog)')) return;
-    busy = true;
+  async function startDownload() {
+    if (!active || busy || !update || document.querySelector('dialog[open]:not(.plot-update-dialog)')) return;
     prompt.hidden = true;
-    retry.hidden = close.hidden = true;
-    progress.hidden = false;
-    progress.removeAttribute('value');
-    status.textContent = 'Downloading and verifying the update…';
-    error.textContent = '';
-    if (!dialog.open) dialog.showModal();
+    if (update.phase === 'installed') { show('installed', 'Restart when you are ready.'); return; }
+    if (update.phase === 'downloaded') { show('downloaded', 'The download is verified.'); return; }
+    busy = true;
+    show('downloading', 'Downloading and verifying the update…');
     try {
       await invoke('plot_update_download');
-      if (!active) return;
-      progress.hidden = true;
-      status.textContent = 'Saving your work before installation…';
+      update.phase = 'downloaded';
+    } catch (failure) {
+      busy = false;
+      show('downloadError', '', failure?.message ?? String(failure));
+      return;
+    }
+    busy = false;
+    if (info.platform === 'windows') show('downloaded', 'The installer will save your work, close PlotForge, and apply the update.');
+    else await install();
+  }
+
+  async function install() {
+    if (busy || !active || !update) return;
+    busy = true;
+    show('saving', 'Waiting for autosave before installation…');
+    try {
       await environment.plotForgeBeforeClose();
       if (!active) return;
-      status.textContent = 'Installing the verified update and relaunching PlotForge…';
+      show('installing', 'Installing the verified update…');
       await invoke('plot_update_install');
-      if (active && info.platform !== 'windows') await invoke('plot_update_restart');
+      update.phase = 'installed';
+      busy = false;
+      show('installed', 'The update is installed. Restart when you are ready.');
     } catch (failure) {
+      busy = false;
+      show('installError', '', failure?.message ?? String(failure));
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function restart() {
+    if (busy || !active) return;
+    busy = true;
+    show('saving', 'Waiting for autosave before restarting…');
+    try {
+      await environment.plotForgeBeforeClose();
       if (!active) return;
-      progress.hidden = true;
-      status.textContent = '';
-      error.textContent = `The update could not finish. ${failure?.message ?? failure}`;
-      retry.hidden = close.hidden = false;
+      show('restarting');
+      await invoke('plot_update_restart');
+    } catch (failure) {
+      busy = false;
+      show('installed', '', failure?.message ?? String(failure));
     } finally {
       busy = false;
     }
@@ -103,20 +186,28 @@ export async function setupUpdates(environment = window) {
 
   async function listen() {
     const token = ++generation;
-    const release = await events.listen('plotforge-update-progress', ({ payload }) => {
-      if (!active || !busy || progress.hidden) return;
-      if (payload.total > 0) {
-        progress.max = payload.total;
-        progress.value = Math.min(payload.downloaded, payload.total);
-        status.textContent = `Downloading update… ${Math.floor(progress.position * 100)}%`;
-      } else {
-        status.textContent = `Downloading update… ${Math.floor(payload.downloaded / 1024)} KB`;
-      }
-    });
-    if (active && generation === token) unsubscribe = release;
-    else release();
+    const registered = await Promise.all([
+      events.listen('plotforge-help', ({ payload }) => {
+        if (!active) return;
+        if (payload === 'about') showAbout();
+        else if (payload === 'check' && !document.querySelector('dialog[open]:not(#about-plotforge, #plotforge-update)')) {
+          if (about.open) about.close();
+          void check(false);
+        }
+      }),
+      events.listen('plotforge-update-progress', ({ payload }) => {
+        if (!active || !busy || phase !== 'downloading') return;
+        if (payload.total > 0) {
+          progress.max = payload.total;
+          progress.value = Math.min(payload.downloaded, payload.total);
+          status.textContent = `Downloading update… ${Math.floor(progress.position * 100)}%`;
+        } else status.textContent = `Downloading update… ${Math.floor(payload.downloaded / 1024)} KB`;
+      }),
+    ]);
+    if (active && generation === token) releases = registered;
+    else registered.forEach(release => release());
   }
-  environment.addEventListener('pagehide', () => { active = false; generation++; unsubscribe?.(); unsubscribe = undefined; });
+  environment.addEventListener('pagehide', () => { active = false; generation++; releases.forEach(release => release()); releases = []; });
   environment.addEventListener('pageshow', event => {
     if (event.persisted) { active = true; void listen().then(() => check(true)).catch(console.error); }
   });
