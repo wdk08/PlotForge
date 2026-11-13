@@ -1,3 +1,6 @@
+import { furnitureDefinition } from './furniture-catalog.js';
+import { FURNITURE_COLOR } from './furniture-data.js';
+
 // Floor geometry uses centimeters so changing the display unit never rescales a plan.
 export const FLOOR_UNITS = { ft: 30.48, in: 2.54, m: 100, cm: 1 };
 export const PLAN_LIMIT = 1_000_000;
@@ -5,14 +8,12 @@ export const FLOOR_ITEMS = {
   door: { single: 'Single door', double: 'Double door' },
   window: { window: 'Window' },
   stairs: { straight: 'Straight stairs', corner: 'L-shaped stairs' },
-  furniture: { bed: 'Bed', couch: 'Couch', table: 'Table', chair: 'Chair', desk: 'Desk', cabinet: 'Cabinet', sink: 'Sink' },
   shape: { rectangle: 'Rectangle', circle: 'Circle', triangle: 'Triangle' },
   label: { text: 'Text label' },
 };
 export const FLOOR_NAMES = { wall: 'Wall', room: 'Room', door: 'Door', window: 'Window', stairs: 'Stairs', furniture: 'Furniture', shape: 'Shape', label: 'Text label' };
 const dimensions = {
-  straight: [95, 280], corner: [200, 250], bed: [150, 200], couch: [205, 88], table: [145, 85],
-  chair: [48, 49], desk: [132, 62], cabinet: [100, 48], sink: [55, 48],
+  straight: [95, 280], corner: [200, 250],
   rectangle: [100, 65], circle: [80, 80], triangle: [90, 80], text: [140, 34],
 };
 const key = () => crypto.randomUUID();
@@ -191,6 +192,12 @@ export function drawRoom(floor, points, thickness = 15) {
   return { floor: next, item: room };
 }
 export function makeFloorItem(type, variant, p) {
+  if (type === 'furniture') {
+    const definition = typeof variant === 'string' ? furnitureDefinition(variant) : variant;
+    return { id: key(), type, variant: definition.design ? 'custom' : definition.id, x: p.x, y: p.y,
+      w: definition.w, h: definition.h, name: definition.name, angle: 0, color: FURNITURE_COLOR,
+      ...(definition.design && { design: structuredClone(definition.design) }) };
+  }
   const [w, h] = dimensions[variant];
   return { id: key(), type, variant, x: p.x, y: p.y, w, h, angle: 0,
     name: type === 'label' ? 'Label' : FLOOR_ITEMS[type][variant], color: type === 'label' ? '#3e382d' : '#af8b62' };

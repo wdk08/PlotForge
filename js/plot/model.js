@@ -1,3 +1,5 @@
+import { furnitureDefinition } from './furniture-catalog.js';
+import { validateFurnitureDesign } from './furniture-data.js';
 import { stackFamily, stackTree, stackWalk } from './stack-tree.js';
 import { DATE_ORDERS, DATE_SEPARATORS, MONTH_FORMATS } from './timeline.js';
 import { FLOOR_ITEMS, FLOOR_UNITS, PLAN_LIMIT } from './floor-model.js';
@@ -251,7 +253,10 @@ function validateFloorPlan(plan) {
           !item.vertices.every(vertex) || !string(item.name, 160) || !validColor(item.color) ||
           !['plain', 'wood', 'tile'].includes(item.surface)) fail('Invalid room.');
       } else {
-        if (!Object.hasOwn(FLOOR_ITEMS, item.type) || !Object.hasOwn(FLOOR_ITEMS[item.type], item.variant)) fail('Invalid floor object type.');
+        if (item.type === 'furniture') {
+          if (item.variant === 'custom') validateFurnitureDesign(item.design);
+          else if (!furnitureDefinition(item.variant)) fail('Unknown furniture type.');
+        } else if (!Object.hasOwn(FLOOR_ITEMS, item.type) || !Object.hasOwn(FLOOR_ITEMS[item.type], item.variant)) fail('Invalid floor object type.');
         if (item.type === 'door' || item.type === 'window') {
           if (!number(item.at, 0, 1) || !number(item.width, 1, 5000) ||
             !['left-in', 'right-in', 'left-out', 'right-out'].includes(item.swing)) fail('Invalid opening.');

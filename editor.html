@@ -68,7 +68,7 @@
         <label class="plot-field">View <select id="floor-style"><option value="blueprint">Blueprint</option><option value="furnished">Furnished</option></select></label>
       </div>
     </nav>
-    <nav class="format-toolbar floor-workspace-tools" id="floor-furniture" aria-label="Furniture library" hidden></nav>
+
   </div>
   <nav class="format-toolbar workspace-tools" id="timeline-tools" aria-label="Timeline tools" hidden>
     <span class="toolbar-label">TIMELINE</span><button id="timeline-event">Add Event</button>
@@ -83,6 +83,18 @@
       <div class="panel-heading">PROJECT CANVASES <span id="board-count"></span></div>
       <nav id="board-tree" aria-label="Project canvases"></nav>
       <p class="outline-instruction">Double-click a nested canvas card to open it.</p>
+    </aside>
+    <aside class="plot-sidebar furniture-library" id="floor-furniture" aria-label="Furniture library" hidden>
+      <div class="furniture-library-heading"><h2>Furniture Library</h2><button id="furniture-close" class="quiet-button" aria-label="Close furniture library">×</button></div>
+      <input id="furniture-search" type="search" placeholder="Search by name" aria-label="Search furniture">
+      <button id="furniture-categories" class="quiet-button" hidden>← Categories</button>
+      <h3 id="furniture-category" hidden></h3>
+      <div id="furniture-results"></div>
+      <div class="furniture-library-actions">
+        <button id="furniture-create" class="primary-button">Create Custom Furniture</button>
+        <button id="furniture-import" class="quiet-button">Import Library</button><button id="furniture-export" class="quiet-button">Export Library</button>
+        <input id="furniture-file" type="file" accept=".json,application/json" hidden>
+      </div>
     </aside>
     <section id="plot-canvas" aria-label="Infinite canvas" tabindex="0">
       <div id="plot-stage"></div><svg id="plot-links" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"></svg>
@@ -107,6 +119,32 @@
       <div id="timeline-format-fields"></div>
       <p>Preview <output id="timeline-format-preview" aria-live="polite"></output></p>
       <div class="dialog-actions"><button class="quiet-button" value="cancel">Cancel</button><button class="primary-button" value="save">Save Format</button></div>
+    </form>
+  </dialog>
+  <dialog id="furniture-designer" aria-labelledby="furniture-designer-title">
+    <form id="furniture-design-form">
+      <h1 id="furniture-designer-title">Create Custom Furniture</h1>
+      <div class="furniture-design-meta">
+        <label>Name <input id="furniture-name" maxlength="160" required></label>
+        <label id="furniture-template-category">Category <select id="furniture-category-select"></select></label>
+        <label>Default width <input id="furniture-width" type="number" step="any" required></label>
+        <label>Default depth <input id="furniture-depth" type="number" step="any" required></label>
+      </div>
+      <div id="furniture-part-tools"></div>
+      <div class="furniture-design-options">
+        <label><input id="furniture-grid" type="checkbox" checked> Show grid</label>
+        <label><input id="furniture-snap" type="checkbox" checked> Snap to grid</label>
+        <span id="furniture-design-hint" role="status"></span>
+      </div>
+      <div class="furniture-design-workspace">
+        <svg id="furniture-design-scene" tabindex="0" xmlns="http://www.w3.org/2000/svg" aria-label="Furniture design canvas"></svg>
+        <div id="furniture-part-properties"></div>
+      </div>
+      <p id="furniture-design-error" role="alert"></p>
+      <div class="dialog-actions">
+        <button id="furniture-design-cancel" class="quiet-button" type="button">Cancel</button>
+        <button id="furniture-design-save" class="primary-button">Save Furniture</button>
+      </div>
     </form>
   </dialog>
   <dialog id="map-type-dialog" aria-labelledby="map-type-title">

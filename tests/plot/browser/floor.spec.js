@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
+import { FURNITURE, FURNITURE_CATEGORIES } from '../../../js/plot/furniture-catalog.js';
 import { decodeProject } from '../../../js/plot/format.js';
 
 const scene = page => page.locator('#floor-scene');
@@ -95,22 +96,27 @@ test('floor plan draws joined rooms, keeps wall openings attached and edits furn
   await expect(walls.first().locator('line').first()).toHaveAttribute('stroke-width', '22');
 
   await tool(page, 'furniture');
-  await dragTo(page, page.getByRole('button', { name: 'Bed', exact: true }), null, { x: 213, y: 260 });
-  const bed = scene(page).locator('[data-plan-type=furniture][aria-label=Bed]');
+  await page.getByRole('button', { name: 'Bedroom', exact: true }).click();
+  await dragTo(page, page.getByRole('button', { name: 'Queen bed', exact: true }), null, { x: 213, y: 260 });
+  const bed = scene(page).locator('[data-plan-type=furniture][aria-label="Queen bed"]');
   await expect(bed).toHaveCount(1);
   await expect(bed).toHaveAttribute('transform', 'translate(225 250) rotate(0)');
   await write(page, 'Rotation (°)', '30');
   await write(page, 'Width (cm)', '180');
   await expect(bed).toHaveAttribute('transform', 'translate(225 250) rotate(30)');
-  await expect(bed.locator('g').first()).toHaveAttribute('transform', 'scale(1.8 2)');
+  await expect(bed.locator('g').first()).toHaveAttribute('transform', 'scale(1.8 2.03)');
+  await tool(page, 'select');
   await expect(scene(page).locator('[data-plan-handle=rotate]')).toBeVisible();
   await expect(scene(page).locator('[data-plan-handle=size]')).toBeVisible();
 
   await tool(page, 'furniture');
-  await page.getByRole('button', { name: 'Chair', exact: true }).click();
+  await page.getByRole('button', { name: 'Categories' }).click();
+  await page.getByRole('searchbox', { name: 'Search furniture' }).fill('Dining chair');
+  await page.getByRole('button', { name: 'Dining chair', exact: true }).click();
   await clickAt(page, 422, 300);
-  const chair = scene(page).locator('[data-plan-type=furniture][aria-label=Chair]');
+  const chair = scene(page).locator('[data-plan-type=furniture][aria-label="Dining chair"]');
   await expect(chair).toHaveAttribute('transform', 'translate(425 300) rotate(0)');
+  await tool(page, 'select');
   await bed.click({ modifiers: ['Shift'] });
   await expect(page.locator('#selection-status')).toHaveText('2 selected');
   await dragTo(page, scene(page), { x: 225, y: 250 }, { x: 250, y: 275 });
@@ -166,4 +172,153 @@ test('floor plan reopens multiple floors and exports the active drawing', async 
 
   await page.locator('#back').click();
   await expect(page.locator('[data-type=map]')).toContainText('2 floors');
+});
+
+test('furniture categories render every built-in preview and allow repeated placement', async ({ page }) => {
+  await start(page);
+  await tool(page, 'furniture');
+  const library = page.locator('#floor-furniture');
+  for (const [key, [label]] of Object.entries(FURNITURE_CATEGORIES)) {
+    await library.getByRole('button', { name: label, exact: true }).click();
+    const expected = Object.values(FURNITURE).filter(item => item.category === key);
+    await expect(library.locator('.furniture-place')).toHaveCount(expected.length);
+    expect(await library.locator('.furniture-place svg > g').evaluateAll(nodes =>
+      nodes.every(node => node.childElementCount >= 2))).toBe(true);
+    await library.getByRole('button', { name: 'Categories' }).click();
+  }
+  await page.getByRole('searchbox', { name: 'Search furniture' }).fill('bed');
+  await library.getByRole('button', { name: 'Twin XL bed', exact: true }).click();
+  await clickAt(page, 225, 200);
+  await clickAt(page, 425, 220);
+  const beds = objects(page, 'furniture');
+  await expect(beds).toHaveCount(2);
+  await expect(field(page, 'Width (cm)')).toHaveValue('99');
+  await expect(field(page, 'Depth (cm)')).toHaveValue('203');
+  await choice(page, 'View').selectOption('furnished');
+  await expect(beds.first().locator('g').first()).toHaveAttribute('fill', '#af8b62');
+  await choice(page, 'View').selectOption('blueprint');
+  await expect(beds.first().locator('g').first()).toHaveAttribute('fill', '#203f57');
+  await tool(page, 'select');
+  await page.getByRole('button', { name: 'Duplicate Selection', exact: true }).click();
+  await expect(beds).toHaveCount(3);
+  await page.getByRole('button', { name: 'Delete selection', exact: true }).click();
+  await expect(beds).toHaveCount(2);
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(beds).toHaveCount(3);
+});
+
+test('custom furniture persists across projects and portable placed copies survive template changes', async ({ page }) => {
+  await start(page);
+  const firstProject = page.url();
+  await tool(page, 'furniture');
+  const library = page.locator('#floor-furniture');
+  await library.getByRole('button', { name: 'Create Custom Furniture' }).click();
+  const dialog = page.locator('#furniture-designer');
+  const design = dialog.locator('#furniture-design-scene');
+  const drawAt = async (x, y) => {
+    const box = await design.boundingBox();
+    await design.click({ position: { x: box.width * x, y: box.height * y } });
+  };
+  await dialog.getByLabel('Name', { exact: true }).fill('Reading nook');
+  await dialog.getByRole('combobox', { name: 'Category' }).selectOption('living');
+  await dialog.getByLabel('Default width (cm)', { exact: true }).fill('175');
+  await dialog.getByRole('button', { name: 'Rectangle', exact: true }).click();
+  await drawAt(.36, .39);
+  await dialog.getByRole('button', { name: 'Ellipse', exact: true }).click();
+  await drawAt(.54, .48);
+  await dialog.getByRole('button', { name: 'Send Backward', exact: true }).click();
+  await dialog.getByLabel('Shape rotation').fill('30');
+  await dialog.getByLabel('Shape rotation').press('Tab');
+  await dialog.getByRole('button', { name: 'Text', exact: true }).click();
+  await drawAt(.46, .54);
+  await dialog.getByLabel('Shape text').fill('READ');
+  await dialog.getByLabel('Shape text').press('Tab');
+  await dialog.getByRole('button', { name: 'Save Furniture', exact: true }).click();
+  await library.getByRole('button', { name: 'Reading nook', exact: true }).click();
+  await clickAt(page, 250, 240);
+  await expect(objects(page, 'furniture').getByText('READ', { exact: true })).toBeVisible();
+  await expect(field(page, 'Width (cm)')).toHaveValue('175');
+  await expect(page.locator('#save-state')).toHaveText('Saved locally');
+
+  await start(page);
+  await tool(page, 'furniture');
+  await library.getByRole('button', { name: 'My Furniture', exact: true }).click();
+  await library.getByRole('button', { name: 'Edit Reading nook', exact: true }).click();
+  await dialog.getByLabel('Name', { exact: true }).fill('Reading bench');
+  await dialog.getByRole('combobox', { name: 'Category' }).selectOption('outdoor');
+  await dialog.getByLabel('Default width (cm)', { exact: true }).fill('210');
+  await dialog.getByRole('button', { name: 'Save Furniture', exact: true }).click();
+  await library.getByRole('button', { name: 'Reading bench', exact: true }).click();
+  await clickAt(page, 325, 235);
+  await expect(field(page, 'Width (cm)')).toHaveValue('210');
+  const download = page.waitForEvent('download');
+  await library.getByRole('button', { name: 'Export Library' }).click();
+  const backup = await readFile(await (await download).path());
+  const file = JSON.parse(backup);
+  expect(file).toMatchObject({ format: 'plotforge-furniture', version: 1 });
+  expect(file.templates[0].design.parts.map(part => part.type)).toEqual(['ellipse', 'rectangle', 'text']);
+
+  await library.getByRole('button', { name: 'Delete Reading bench', exact: true }).click();
+  await page.locator('#prompt-dialog').getByRole('button', { name: 'Delete Template', exact: true }).click();
+  await expect(library.getByRole('button', { name: 'Reading bench', exact: true })).toHaveCount(0);
+  await expect(objects(page, 'furniture').getByText('READ', { exact: true })).toBeVisible();
+  await page.locator('#furniture-file').setInputFiles({ name: 'furniture.json', mimeType: 'application/json', buffer: backup });
+  await expect(library.getByRole('button', { name: 'Reading bench', exact: true })).toBeVisible();
+  await library.getByRole('button', { name: 'Duplicate Reading bench', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Save Furniture', exact: true }).click();
+  await expect(library.getByRole('button', { name: 'Reading bench copy', exact: true })).toBeVisible();
+
+  await page.goto(firstProject);
+  await expect(objects(page, 'furniture')).toHaveAttribute('aria-label', 'Reading nook');
+  await clickAt(page, 250, 250);
+  await expect(field(page, 'Width (cm)')).toHaveValue('175');
+  await page.getByRole('button', { name: 'Edit Instance Design' }).click();
+  await dialog.getByLabel('Name', { exact: true }).fill('Portable nook');
+  await dialog.getByRole('button', { name: 'Save Instance' }).click();
+  const plf = await exportAs(page, 'Export Project (.plf)');
+  const { project } = await decodeProject(new Blob([plf]));
+  const placed = project.boards[project.view.active].plan.floors[0].objects[0];
+  expect(placed).toMatchObject({ name: 'Portable nook', w: 175, variant: 'custom', design: file.templates[0].design });
+  expect(placed.templateId).toBeUndefined();
+  const png = await exportAs(page, 'Export Canvas as PNG');
+  expect(png.subarray(1, 4).toString()).toBe('PNG');
+  const pdf = await exportAs(page, 'Export Canvas as PDF');
+  expect(pdf.subarray(0, 4).toString()).toBe('%PDF');
+});
+
+test('furniture designer combines a floor shape with a line and a polygon', async ({ page }) => {
+  await start(page);
+  await tool(page, 'shape');
+  await clickAt(page, 300, 225);
+  await page.getByRole('button', { name: 'Save Selection as Furniture' }).click();
+  const dialog = page.locator('#furniture-designer');
+  const design = dialog.locator('#furniture-design-scene');
+  await expect(design.locator('[data-part]')).toHaveCount(1);
+  await dialog.getByLabel('Name', { exact: true }).fill('Drafting station');
+  await dialog.getByLabel('Show grid').uncheck();
+  await dialog.getByLabel('Snap to grid').uncheck();
+  const drawAt = async (x, y) => {
+    const point = await design.evaluate((svg, { x, y }) => {
+      const { x: left, y: top, width, height } = svg.viewBox.baseVal;
+      const p = new DOMPoint(left + width * x, top + height * y).matrixTransform(svg.getScreenCTM());
+      return { x: p.x, y: p.y };
+    }, { x, y });
+    await page.mouse.click(point.x, point.y);
+  };
+  await dialog.getByRole('button', { name: 'Line', exact: true }).click();
+  await drawAt(.3, .3);
+  await dialog.getByRole('button', { name: 'Polygon', exact: true }).click();
+  await drawAt(.6, .35);
+  await drawAt(.8, .55);
+  await drawAt(.65, .65);
+  await page.keyboard.press('Enter');
+  await expect(design.locator('[data-part] polygon')).toHaveCount(1);
+  await dialog.getByLabel('Shape width').fill('70');
+  await dialog.getByLabel('Shape width').press('Tab');
+  await dialog.getByRole('button', { name: 'Save Furniture', exact: true }).click();
+  await tool(page, 'furniture');
+  await page.getByRole('button', { name: 'Drafting station', exact: true }).click();
+  await clickAt(page, 450, 300);
+  await expect(objects(page, 'furniture').locator('polygon')).toHaveCount(1);
+  await expect(objects(page, 'furniture').locator('path[d*="L"]')).toHaveCount(1);
 });

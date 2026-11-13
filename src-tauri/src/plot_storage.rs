@@ -223,7 +223,7 @@ impl Store {
     }
     fn preference_path(&self, body: &Value) -> Result<PathBuf> {
         let key = text(body, "key")?;
-        if !matches!(key, "backup-settings" | "library-sort") {
+        if !matches!(key, "backup-settings" | "library-sort" | "furniture-library") {
             return Err(invalid("Unknown preference."));
         }
         Ok(self.root.join("preferences").join(format!("{key}.json")))
@@ -411,6 +411,20 @@ mod tests {
                 .unwrap()["revision"],
             3
         );
+    }
+
+    #[test]
+    fn furniture_library_survives_reopening_local_storage() {
+        let dir = tempfile::tempdir().unwrap();
+        let key = json!({"key": "furniture-library"});
+        let value = json!({"format": "plotforge-furniture", "version": 1, "templates": []});
+        let store = Store::new(dir.path().into()).unwrap();
+        store
+            .run("setPreference", &json!({"key": key["key"], "value": value}))
+            .unwrap();
+        drop(store);
+        let reopened = Store::new(dir.path().into()).unwrap();
+        assert_eq!(reopened.run("getPreference", &key).unwrap(), value);
     }
 
     #[test]

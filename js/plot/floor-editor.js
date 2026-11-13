@@ -1,5 +1,6 @@
 import { $, ask, button, element, report, task } from './common.js';
-import { bindToolbarDrag } from './toolbar-drag.js';
+import { bindFurnitureLibrary } from './furniture-library.js';
+import { designFromObjects, MAX_PARTS } from './furniture-data.js';
 import { fitView, worldAt } from './geometry.js';
 import {
   activeFloor, amount, attached, changePoints, deleteFloorItems, distance, drawRoom, drawWall, envelope,
@@ -7,6 +8,7 @@ import {
   openingPosition, PLAN_LIMIT, replaceItem, resizeRoom, snapPoint, translateFloorItems, updateFloor, verticesOf, xy,
 } from './floor-model.js';
 import { drawFloor, floorBounds } from './floor-render.js';
+import { drawFurniture, svg } from './furniture-render.js';
 
 const TOOLS = {
   select: ['Select', 'V', 'Drag objects to move them. Shift-click or drag a box to select several.'],
@@ -62,11 +64,11 @@ function input(label, type, value, change, attrs = {}) {
 
 export function bindFloorEditor(editor) {
   const canvas = $('plot-canvas'), scene = $('floor-scene'), toolbar = $('floor-tools');
-  const actions = $('floor-drawing-tools'), furniture = $('floor-furniture'), variant = $('floor-variant');
+  const actions = $('floor-drawing-tools'), variant = $('floor-variant');
   const floorPicker = $('floor-picker'), stylePicker = $('floor-style'), inspector = $('inspector-body');
   const variants = Object.fromEntries(Object.entries(FLOOR_ITEMS).map(([type, items]) => [type, Object.keys(items)[0]]));
   let plan, boardId, tool = 'select', anchor, polygon = [], hover, pointer, draft, marquee, frame = 0;
-  let selected = new Set(), thickness = 15;
+  let selected = new Set(), thickness = 15, furnitureChoice;
   const active = () => activeFloor(plan);
   const commitFloor = floor => editor.change(updateFloor(plan, floor));
   const setting = changes => editor.change({ ...plan, ...changes });
@@ -77,20 +79,19 @@ export function bindFloorEditor(editor) {
     actions.append(control);
     return [id, control];
   }));
-  for (const [id, label] of Object.entries(FLOOR_ITEMS.furniture)) {
-    const control = button(label, event => {
-      const rect = control.getBoundingClientRect();
-      if (event.detail && (event.clientX < rect.left || event.clientX > rect.right ||
-          event.clientY < rect.top || event.clientY > rect.bottom)) return;
-      variants.furniture = id;
+  const library = bindFurnitureLibrary({
+    canvas, unit: () => plan.unit,
+    pick(item) {
+      furnitureChoice = item;
+      library.select(item);
       choose('furniture');
-    });
-    control.dataset.insert = id;
-    furniture.append(control);
-  }
-  bindToolbarDrag(furniture, canvas, (id, event) => {
-    if (!plan) return;
-    place('furniture', id, location(event, false));
+    },
+    drop(item, event) {
+      if (!plan) return;
+      furnitureChoice = item;
+      place('furniture', item, location(event, false));
+    },
+    close: () => choose('select'),
   });
   function updateTools() {
     for (const [id, control] of toolButtons) control.setAttribute('aria-pressed', String(tool === id));
@@ -100,8 +101,9 @@ export function bindFloorEditor(editor) {
       variant.replaceChildren(select('Type', choices, variants[tool], value => { variants[tool] = value; }).lastElementChild);
       variant.firstElementChild.setAttribute('aria-label', 'Drawing type');
     }
-    furniture.hidden = tool !== 'furniture';
-    for (const control of furniture.children) control.setAttribute('aria-pressed', String(control.dataset.insert === variants.furniture));
+    if (tool === 'furniture') { library.open(); library.select(furnitureChoice); }
+    else library.hide();
+    canvas.closest('.plot-workspace').classList.toggle('browsing-furniture', tool === 'furniture');
     scene.dataset.tool = tool;
     status();
   }
@@ -122,7 +124,9 @@ export function bindFloorEditor(editor) {
   }
   function status() {
     if (!plan) return;
-    $('selection-status').textContent = selected.size && tool === 'select' ? `${selected.size} selected` : TOOLS[tool][2];
+    if (tool === 'furniture' && furnitureChoice) {
+      $('selection-status').textContent = `Click to place ${furnitureChoice.name}. Press Esc to finish.`;
+    } else $('selection-status').textContent = selected.size && tool === 'select' ? `${selected.size} selected` : TOOLS[tool][2];
     $('board-status').textContent = `${active().name} · ${active().objects.length} objects`;
   }
   function schedulePaint(immediate = false) {
@@ -155,6 +159,12 @@ export function bindFloorEditor(editor) {
     scene.replaceChildren(drawFloor(plan, draft ?? active(), box, {
       selected, variables: editor.variables(), zoom: view.zoom, preview, marquee, interactive: true,
     }));
+    if (tool === 'furniture' && furnitureChoice && hover) {
+      const ghost = { ...furnitureChoice, variant: furnitureChoice.design ? 'custom' : furnitureChoice.id };
+      const colors = plan.style === 'blueprint' ? { ink: '#dbeefa', fixture: '#203f57' } : { ink: '#453b31', fixture: '#efe0c9' };
+      const drawing = drawFurniture(ghost, colors, colors.fixture, plan.style === 'blueprint');
+      scene.append(svg('g', { transform: `translate(${hover.x} ${hover.y})`, opacity: .58, 'pointer-events': 'none' }, drawing));
+    }
   }
 
   function properties() {
@@ -213,7 +223,23 @@ export function bindFloorEditor(editor) {
         numeric('X', item.x, x => patch(xy(x, item.y)), -PLAN_LIMIT),
         numeric('Y', item.y, y => patch(xy(item.x, y)), -PLAN_LIMIT),
         input('Rotation (°)', 'number', item.angle, angle => patch({ angle }), { min: -360, max: 360, step: 'any' }), color('Color'));
-      if (Object.keys(FLOOR_ITEMS[item.type]).length > 1) parts.push(select('Type', FLOOR_ITEMS[item.type], item.variant, variant => patch({ variant })));
+      if (Object.keys(FLOOR_ITEMS[item.type] ?? {}).length > 1) parts.push(select('Type', FLOOR_ITEMS[item.type], item.variant, variant => patch({ variant })));
+    }
+    if (item?.variant === 'custom') parts.push(button('Edit Instance Design', () => library.editInstance(item, edited => {
+      patch({ name: edited.name, w: edited.w, h: edited.h, design: structuredClone(edited.design) });
+    }), 'secondary-button'));
+    const reusable = floor.objects.filter(model => selected.has(model.id) && ['shape', 'furniture', 'label'].includes(model.type));
+    if (reusable.length === selected.size && reusable.length) {
+      parts.push(button('Duplicate Selection', duplicate, 'secondary-button'));
+      parts.push(button('Save Selection as Furniture', task(() => {
+        const { x, y, w, h } = floorBounds({ ...floor, objects: reusable });
+        const result = designFromObjects(reusable, { x, y, w, h });
+        if (!result.design.parts.length || result.design.parts.length > MAX_PARTS) {
+          report(new Error(`Select up to ${MAX_PARTS} reusable shapes.`));
+          return;
+        }
+        library.createFrom(result);
+      }), 'secondary-button'));
     }
     if (selected.size) parts.push(button('Delete selection', remove, 'secondary-button'));
     inspector.replaceChildren(...parts);
@@ -228,6 +254,14 @@ export function bindFloorEditor(editor) {
   function selectAll() {
     choose('select');
     selectItems(new Set(active().objects.map(item => item.id)));
+  }
+  function duplicate() {
+    const floor = active(), gap = plan.snap ? plan.spacing : 20;
+    const copies = floor.objects.filter(model => selected.has(model.id) && ['shape', 'furniture', 'label'].includes(model.type))
+      .map(model => ({ ...structuredClone(model), id: crypto.randomUUID(), ...xy(model.x + gap, model.y + gap) }));
+    if (!copies.length) return;
+    selected = new Set(copies.map(model => model.id));
+    commitFloor({ ...floor, objects: [...floor.objects, ...copies] });
   }
   function remove() {
     if (!selected.size) return;
@@ -250,7 +284,12 @@ export function bindFloorEditor(editor) {
       if (!hit) { report(new Error('Choose a wall to place this opening.')); return; }
       item = makeOpening(type, id, hit);
     } else item = makeFloorItem(type, id, p);
-    choose('select');
+    if (type !== 'furniture') choose('select');
+    else {
+      tool = 'furniture';
+      updateTools();
+      canvas.focus({ preventScroll: true });
+    }
     selected = new Set([item.id]);
     commitFloor({ ...floor, objects: [...floor.objects, item] });
     if (type === 'label') {
@@ -284,6 +323,8 @@ export function bindFloorEditor(editor) {
     } else if (tool === 'polygon') {
       if (polygon.length >= 3 && distance(p, polygon[0]) < 12 / editor.view().zoom) finishRoom(polygon);
       else if (!polygon.some(point => distance(point, p) < 1) && polygon.length < 200) polygon.push(p);
+    } else if (tool === 'furniture') {
+      if (furnitureChoice) place(tool, furnitureChoice, p);
     } else place(tool, variants[tool], p);
   }
   function dragFloor(event, current) {
@@ -392,6 +433,7 @@ export function bindFloorEditor(editor) {
     const key = event.key.toLowerCase(), command = event.metaKey || event.ctrlKey;
     let action;
     if (command && key === 'a') action = selectAll;
+    else if (command && key === 'd') action = duplicate;
     else if (command && ['z', 'y'].includes(key)) { reset(); schedulePaint(); return; }
     else if (key === 'delete' || key === 'backspace') action = remove;
     else if (key === 'escape') action = () => { selected = new Set(); choose('select'); };
@@ -437,7 +479,11 @@ export function bindFloorEditor(editor) {
       canvas.classList.toggle('floor-plan-active', Boolean(plan));
       $('layers').hidden = Boolean(plan);
       $('guides-toggle').hidden = Boolean(plan);
-      if (!plan) return;
+      if (!plan) {
+        library.hide();
+        canvas.closest('.plot-workspace').classList.remove('browsing-furniture');
+        return;
+      }
       if (previous !== plan) {
         floorPicker.replaceChildren(...plan.floors.map(floor => {
           const option = element('option', null, floor.name);

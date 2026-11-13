@@ -1,3 +1,4 @@
+import { drawFurniture } from './furniture-render.js';
 import { attached, envelope, itemBox, measure, openingPosition } from './floor-model.js';
 import { resolveText } from './variables.js';
 
@@ -19,39 +20,6 @@ const polygon = (points, attrs = {}) => svg('polygon', { points: points.map(p =>
 const circle = (x, y, r, attrs = {}) => svg('circle', { cx: x, cy: y, r, ...attrs });
 const text = (x, y, label, attrs = {}) => svg('text', { x, y, 'text-anchor': 'middle', 'dominant-baseline': 'central', ...attrs }, label);
 
-function furniture(item, colors, fill) {
-  const group = svg('g', { transform: `scale(${item.w / 100} ${item.h / 100})`, fill, stroke: colors.ink,
-    'stroke-width': 1.3, 'stroke-linejoin': 'round' });
-  const add = (...nodes) => group.append(...nodes);
-  const outline = (x, y, w, h, radius = 3) => rect(x, y, w, h, { rx: radius });
-  const detail = (x, y, w, h) => rect(x, y, w, h, { fill: colors.fixture, rx: 4 });
-  switch (item.variant) {
-    case 'bed':
-      add(outline(-49, -49, 98, 98), detail(-42, -42, 39, 23), detail(3, -42, 39, 23),
-        outline(-43, -13, 86, 56), path('M-43 1H43'));
-      break;
-    case 'couch':
-      add(outline(-49, -49, 98, 98, 10), detail(-38, -39, 76, 22), outline(-37, -16, 37, 53),
-        outline(0, -16, 37, 53), detail(-47, -36, 10, 73), detail(37, -36, 10, 73));
-      break;
-    case 'table':
-      add(outline(-49, -49, 98, 98, 14), ...[-36, 36].flatMap(x => [-35, 35].map(y => circle(x, y, 4, { fill: colors.ink }))));
-      break;
-    case 'chair':
-      add(outline(-45, -49, 90, 98, 14), detail(-42, -45, 84, 20), outline(-38, -18, 76, 56, 11));
-      break;
-    case 'desk':
-      add(outline(-49, -49, 98, 98), detail(12, -44, 31, 87), path('M16 -15H38M16 15H38'), detail(-30, -25, 27, 18));
-      break;
-    case 'cabinet':
-      add(outline(-49, -49, 98, 98), path('M0 -49V49M-7 -10V10M7 -10V10', { fill: 'none' }));
-      break;
-    case 'sink':
-      add(outline(-49, -49, 98, 98, 8), detail(-37, -26, 74, 61), circle(0, 8, 4, { fill: colors.ink }), path('M0 -43V-17'));
-      break;
-  }
-  return group;
-}
 function stairs(item, colors, fill) {
   const group = svg('g', { transform: `scale(${item.w / 100} ${item.h / 100})`, stroke: colors.ink, 'stroke-width': 1.2 });
   if (item.variant === 'straight') {
@@ -198,7 +166,7 @@ export function drawFloor(plan, floor, box, { selected = new Set(), variables, z
   for (const item of [...objects.shape, ...objects.stairs, ...objects.furniture, ...objects.label]) {
     const { x, y, w, h, angle } = item, node = outline(item, { transform: `translate(${x} ${y}) rotate(${angle})` });
     const fill = plan.style === 'furnished' ? item.color : colors.fixture;
-    if (item.type === 'furniture') node.append(furniture(item, colors, fill));
+    if (item.type === 'furniture') node.append(drawFurniture(item, colors, fill, plan.style === 'blueprint'));
     if (item.type === 'stairs') node.append(stairs(item, colors, fill));
     if (item.type === 'shape') {
       const attrs = { fill, stroke: colors.ink, 'stroke-width': 1.5 };
