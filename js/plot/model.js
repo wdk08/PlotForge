@@ -1,7 +1,7 @@
 import { furnitureDefinition } from './furniture-catalog.js';
 import { validateFurnitureDesign } from './furniture-data.js';
 import { stackFamily, stackTree, stackWalk } from './stack-tree.js';
-import { DATE_ORDERS, DATE_SEPARATORS, MONTH_FORMATS } from './timeline.js';
+import { DATE_ORDERS, DATE_SEPARATORS, MONTH_FORMATS, TIMELINE_MAX_SCALE, TIMELINE_PAN_LIMIT } from './timeline.js';
 import { FLOOR_ITEMS, FLOOR_UNITS, PLAN_LIMIT } from './floor-model.js';
 
 export const SCHEMA = 1;
@@ -296,7 +296,7 @@ export function validateProject(project) {
     }
     if (board.timeline !== undefined) {
       const settings = board.timeline;
-      if (board.kind !== 'timeline' || !object(settings) || !number(settings.scale, .1, 20) ||
+      if (board.kind !== 'timeline' || !object(settings) || !number(settings.scale, .1, TIMELINE_MAX_SCALE) ||
           !Object.hasOwn(DATE_ORDERS, settings.order) || !Object.hasOwn(DATE_SEPARATORS, settings.separator) ||
           !Object.hasOwn(MONTH_FORMATS, settings.month) || !['12', '24'].includes(settings.clock) ||
           ![settings.dateZero, settings.hourZero, settings.seconds].every(flag)) fail('Invalid timeline settings.');
@@ -380,7 +380,8 @@ export function validateProject(project) {
   if (owned.size !== Object.keys(project.boards).length) fail('The project contains orphaned canvases.');
   if (!object(project.view) || !owned.has(project.view.active) || !object(project.view.byBoard)) fail('Invalid project navigation.');
   for (const [key, view] of Object.entries(project.view.byBoard)) {
-    if (!owned.has(key) || !object(view) || !number(view.x, -WORLD * 10, WORLD * 10) || !number(view.y, -WORLD * 10, WORLD * 10) ||
+    const horizontalLimit = project.boards[key]?.kind === 'timeline' ? TIMELINE_PAN_LIMIT : WORLD * 10;
+    if (!owned.has(key) || !object(view) || !number(view.x, -horizontalLimit, horizontalLimit) || !number(view.y, -WORLD * 10, WORLD * 10) ||
         !number(view.zoom, 0.00001, 6)) fail('Invalid canvas viewport.');
   }
   return project;

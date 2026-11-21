@@ -106,3 +106,35 @@ test('deep stacks are validated and projected without recursion', () => {
   assert.equal(presentBoard(board).elements.length, 2500);
   assert.equal(extractSelection(project, board.id, new Set([board.elements[0].id])).elements.length, 2500);
 });
+
+test('high timeline scales retain exact day and hour ratios and generate only visible ticks', async () => {
+  const settings = { ...timelineSettings(), scale: 320 };
+  const events = ['2026-11-11', '2026-11-12', '2026-11-13', '2026-11-20', '2026-12-11', '9999-12-31']
+    .map(date => makeElement('event', 0, 0, { date }));
+  const positions = [...timelinePositions(events, settings).values()];
+  assert.equal(positions[1].axisX - positions[0].axisX, 80);
+  assert.equal(positions[3].axisX - positions[2].axisX, 560);
+  assert.equal(positions[4].axisX - positions[0].axisX, 30 * 80);
+  const [axis] = timelineAxes(positions, settings, positions[0].axisX, positions[0].axisX + 800, 1);
+  assert.equal(axis.ticks.length, 11);
+  assert.equal(axis.ticks[1].label, '2026-11-12');
+  const hourly = [0, 1, 4].map(hour => makeElement('event', 0, 0, { date: '2026-11-11', time: `0${hour}:00` }));
+  const high = { ...settings, scale: 7680 };
+  const hours = [...timelinePositions(hourly, high).values()];
+  assert.equal(hours[1].axisX - hours[0].axisX, 80);
+  assert.equal(hours[2].axisX - hours[1].axisX, 240);
+  assert.ok(timelineAxes(hours, high, hours[0].axisX, hours[0].axisX + 800, 1)[0].ticks.every(tick => tick.label.includes(':')));
+
+  const project = createProject(), map = makeElement('timeline', 0, 0);
+  let saved = insertElement(project, project.root, map);
+  const board = saved.boards[map.boardId];
+  board.timeline = { ...settings, scale: 1_000_000 };
+  board.elements = Array.from({ length: 10_000 }, (_, i) => makeElement('event', 0, 0, { date: '2026-11-11', time: '00:00', chronology: i }));
+  const rendered = [...timelinePositions(board.elements, board.timeline).values()];
+  const axes = timelineAxes(rendered, board.timeline, 70, 1070, 1);
+  assert.ok(axes[0].ticks.length <= 11);
+  saved.view.byBoard[board.id] = { x: -700_000_000_000, y: 0, zoom: 1 };
+  const { project: reopened } = await decodeProject(await encodeProject(saved));
+  assert.equal(reopened.boards[board.id].timeline.scale, 1_000_000);
+  assert.equal(reopened.view.byBoard[board.id].x, -700_000_000_000);
+});

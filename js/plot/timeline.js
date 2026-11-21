@@ -3,6 +3,9 @@ const HOUR = 3_600_000;
 const epoch = Date.UTC(2000, 0, 1);
 const dayWidth = .25;
 export const TIMELINE_ORIGIN = 70;
+export const TIMELINE_MAX_SCALE = 1_000_000;
+export const TIMELINE_DAY_SCALE = 80 / dayWidth;
+export const TIMELINE_PAN_LIMIT = 1e14;
 const lanes = { calendar: 74, clock: 380, relative: 686 };
 const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const pad = value => String(value).padStart(2, '0');
@@ -190,7 +193,7 @@ export function timelineAxes(elements, settings, left, right, zoom) {
       const max = lane === 'calendar' ? Date.parse('9999-12-31T23:59:59Z') : DAY - 1;
       const start = Math.max(min, origin + (left - TIMELINE_ORIGIN) / rate);
       const end = Math.min(max, origin + (right - TIMELINE_ORIGIN) / rate);
-      const interval = 150 / (rate * zoom);
+      const interval = 75 / (rate * zoom);
       if (end >= start) {
         if (lane === 'calendar') ticks = calendarTicks(start, end, interval, settings);
         else {

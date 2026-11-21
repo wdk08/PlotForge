@@ -73,8 +73,8 @@
   <nav class="format-toolbar workspace-tools" id="timeline-tools" aria-label="Timeline tools" hidden>
     <span class="toolbar-label">TIMELINE</span><button id="timeline-event">Add Event</button>
     <label class="plot-field">Timeline Scale <input id="timeline-scale" type="range" min="0.1" max="20" step="any" value="1"></label>
-    <label class="plot-field"><span class="sr-only">Exact timeline scale</span><input id="timeline-scale-value" type="number" min="0.1" max="20" step="any" value="1">×</label>
-    <button id="timeline-scale-reset">Reset Scale</button><button id="timeline-format">Date &amp; Time Format</button>
+    <label class="plot-field"><span class="sr-only">Exact timeline scale</span><input id="timeline-scale-value" type="number" min="0.1" max="1000000" step="any" value="1">×</label>
+    <button id="timeline-fit-days">Fit to Days</button><button id="timeline-scale-reset">Reset Scale</button><button id="timeline-format">Date &amp; Time Format</button>
   </nav>
   <nav class="canvas-navigation" aria-label="Canvas path"><button id="back" class="quiet-button" hidden>← Back</button><ol id="breadcrumbs"></ol></nav>
   <div id="save-error" class="document-banner" hidden><span id="save-error-message"></span><button id="retry-save" class="secondary-button">Retry Save</button></div>
@@ -193,7 +193,7 @@
     <h1 id="variables-heading">Project Variables</h1>
     <div id="variable-list" class="version-list"></div>
     <form id="variable-form" class="planning-form">
-      <label class="plot-field">Name <input id="variable-name" required maxlength="64" autocomplete="off"></label>
+      <label class="plot-field">Name <input id="variable-name" required maxlength="64" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" writingsuggestions="false"></label>
       <label class="plot-field">Value <input id="variable-value" maxlength="4000"></label>
       <p id="variable-error" role="alert"></p>
       <div class="dialog-actions"><button type="button" class="quiet-button" id="variable-new">New Variable</button><button type="button" id="variable-delete" hidden>Delete</button><button class="primary-button">Save Variable</button></div>

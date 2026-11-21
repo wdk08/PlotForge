@@ -1006,3 +1006,79 @@ test('nested stacks move between parents and keep timeline, canvas and floor-pla
   await expect(other).toContainText('0 cards');
   await expect(inner).toContainText('3 cards');
 });
+
+test('Fit to Days separates dates at normal zoom and high scale navigates distant events', async ({ page }) => {
+  await create(page);
+  await dragTool(page, 'timeline', 100, 100);
+  await card(page, 'timeline').dblclick();
+  await page.locator('#timeline-fit-days').click();
+  const scale = page.locator('#timeline-scale-value');
+  await expect(scale).toHaveValue('320');
+  await expect(page.locator('#zoom-reset')).toHaveText('100%');
+  const positions = {};
+  for (const [name, date] of [['Day 1', '2026-11-11'], ['Day 2', '2026-11-12'], ['Day 9', '2026-11-20']]) {
+    await page.locator('#timeline-event').click();
+    await enterValue(page.getByLabel('Title', { exact: true }), name);
+    await enterValue(schedule(page, 'Start date'), date);
+    const event = page.locator(`[data-type=event][aria-label="${name}"]`);
+    await expect(event.locator('.planning-date')).toHaveText(date);
+    positions[name] = parseFloat(await event.evaluate(node => node.style.left));
+  }
+  expect(positions['Day 2'] - positions['Day 1']).toBeCloseTo(80);
+  expect(positions['Day 9'] - positions['Day 2']).toBeCloseTo(640);
+  await expect(page.locator('.timeline-axis-label').filter({ hasText: '2026-11-20' })).toBeAttached();
+  await enterValue(scale, '1000000');
+  await expect(page.locator('#zoom-reset')).toHaveText('100%');
+  await page.locator('#timeline-event').click();
+  await enterValue(page.getByLabel('Title', { exact: true }), 'Far future');
+  await enterValue(schedule(page, 'Start date'), '9999-12-31');
+  const distant = page.locator('[data-type=event][aria-label="Far future"]');
+  await expect(distant).toBeVisible();
+  const size = await distant.boundingBox();
+  expect(size.width).toBeCloseTo(218);
+  expect(await page.locator('[data-type=event]').count()).toBeLessThan(4);
+  expect(await page.locator('.timeline-axis-label').count()).toBeLessThan(20);
+  await page.getByRole('button', { name: 'Zoom in', exact: true }).click();
+  await expect(distant).toBeVisible();
+  await saved(page);
+  await page.reload();
+  await expect(scale).toHaveValue('1000000');
+  await expect(distant).toBeVisible();
+  await expect(distant.locator('.planning-date')).toHaveText('9999-12-31');
+  const original = await distant.boundingBox();
+  await board(page).dispatchEvent('wheel', { deltaX: 50, bubbles: true, cancelable: true });
+  await expect.poll(async () => (await distant.boundingBox()).x).toBeCloseTo(original.x - 50);
+});
+
+test('variable name entry preserves exact case and disables text correction only for the name field', async ({ page }) => {
+  await create(page);
+  await page.locator('#variables').click();
+  const name = page.locator('#variable-name');
+  for (const [attribute, value] of Object.entries({ autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false', writingsuggestions: 'false' })) {
+    await expect(name).toHaveAttribute(attribute, value);
+  }
+  for (const key of ['elf', 'Elf', 'ELF', 'mainCharacter', 'sophia_age', 'elf2']) {
+    await page.locator('#variable-new').click();
+    await name.fill(key);
+    await page.locator('#variable-value').fill(key + ' value');
+    await page.getByRole('button', { name: 'Save Variable', exact: true }).click();
+    await expect(name).toHaveValue(key);
+  }
+  await page.getByRole('button', { name: '{elf} · elf value', exact: true }).click();
+  await page.locator('#variable-value').fill('small elf');
+  await page.getByRole('button', { name: 'Save Variable', exact: true }).click();
+  await expect(name).toHaveValue('elf');
+  await page.getByRole('button', { name: 'Close variables' }).click();
+  const note = await add(page, 'note');
+  await note.dblclick();
+  const content = page.getByRole('textbox', { name: 'Note body' });
+  await content.fill('{elf} / {Elf} / {ELF} / {mainCharacter} / {sophia_age} / {elf2}');
+  await content.press('Escape');
+  await expect(note).toContainText('small elf / Elf value / ELF value / mainCharacter value / sophia_age value / elf2 value');
+  await saved(page);
+  await page.reload();
+  await expect(note).toContainText('small elf / Elf value / ELF value');
+  await page.locator('#variables').click();
+  await page.getByRole('button', { name: '{Elf} · Elf value', exact: true }).click();
+  await expect(name).toHaveValue('Elf');
+});

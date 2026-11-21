@@ -1,5 +1,5 @@
 import { $, element } from './common.js';
-import { DATE_ORDERS, DATE_SEPARATORS, MONTH_FORMATS, endBeforeStart, eventMode, formatDate, formatTime, parseDate, parseTime, timelineSettings } from './timeline.js';
+import { DATE_ORDERS, DATE_SEPARATORS, MONTH_FORMATS, TIMELINE_MAX_SCALE, TIMELINE_DAY_SCALE, endBeforeStart, eventMode, formatDate, formatTime, parseDate, parseTime, timelineSettings } from './timeline.js';
 
 function select(label, choices, value, change) {
   const control = element('select');
@@ -92,19 +92,23 @@ export function bindTimelineControls(board, change) {
   const slider = $('timeline-scale'), numeric = $('timeline-scale-value'), reset = $('timeline-scale-reset');
   const dialog = $('timeline-format-dialog'), fields = $('timeline-format-fields'), preview = $('timeline-format-preview');
   const sync = settings => {
+    // Retain fine slider control near the current scale while the numeric field spans the full range.
+    if (document.activeElement !== slider) slider.max = Math.min(TIMELINE_MAX_SCALE, Math.max(20, settings.scale * 4));
     slider.value = numeric.value = settings.scale;
     reset.disabled = settings.scale === 1;
   };
   let sliderEdit;
   const scale = (value, grouped) => {
     const settings = timelineSettings(board());
-    if (!Number.isFinite(value) || value < .1 || value > 20 || value === settings.scale) { sync(settings); return; }
+    if (!Number.isFinite(value) || value < .1 || value > TIMELINE_MAX_SCALE || value === settings.scale) { sync(settings); return; }
     change({ ...settings, scale: value }, grouped);
   };
   slider.oninput = () => scale(slider.valueAsNumber, sliderEdit ??= {});
   slider.onchange = () => { scale(slider.valueAsNumber, sliderEdit); sliderEdit = undefined; };
   numeric.onchange = () => scale(numeric.valueAsNumber);
   reset.onclick = () => scale(1);
+  $('timeline-fit-days').onclick = () => scale(TIMELINE_DAY_SCALE);
+  slider.onblur = () => sync(timelineSettings(board()));
 
   $('timeline-format').onclick = () => {
     const boardId = board().id;

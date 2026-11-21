@@ -3,10 +3,10 @@ import { clamp, point, WORLD } from './model.js';
 export const MIN_ZOOM = 0.00001;
 export const MAX_ZOOM = 6;
 export const worldAt = (view, x, y) => ({ x: (x - view.x) / view.zoom, y: (y - view.y) / view.zoom });
-export function zoomAt(view, x, y, zoom) {
+export function zoomAt(view, x, y, zoom, horizontalLimit = WORLD * 10) {
   const anchor = worldAt(view, x, y);
   zoom = clamp(zoom, MIN_ZOOM, MAX_ZOOM);
-  return { x: clamp(x - anchor.x * zoom, -WORLD * 10, WORLD * 10), y: clamp(y - anchor.y * zoom, -WORLD * 10, WORLD * 10), zoom };
+  return { x: clamp(x - anchor.x * zoom, -horizontalLimit, horizontalLimit), y: clamp(y - anchor.y * zoom, -WORLD * 10, WORLD * 10), zoom };
 }
 export const center = element => ({ x: element.x + element.w / 2, y: element.y + element.h / 2 });
 export function bounds(element) {

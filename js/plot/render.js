@@ -291,7 +291,9 @@ export function createCanvasRenderer(callbacks) {
       lastOrder = [];
       active = board.id;
     }
-    stage.style.transform = `translate(${view.x}px,${view.y}px) scale(${view.zoom})`;
+    // Keep CSS layout near the viewport even when calendar coordinates span billions of pixels.
+    const rebase = board.kind === 'timeline' && Math.abs(view.x) > 1e7 ? Math.trunc(view.x / 1e6) * 1e6 : 0;
+    stage.style.transform = `translate(${view.x - rebase}px,${view.y}px) scale(${view.zoom})`;
     const spacing = 24 * view.zoom;
     const interval = spacing < 12 ? spacing * 2 ** Math.ceil(Math.log2(12 / spacing)) : spacing;
     canvas.classList.toggle('grid-on', project.settings.grid);
@@ -328,6 +330,7 @@ export function createCanvasRenderer(callbacks) {
         }
       }
       const node = entry.node;
+      if (board.kind === 'timeline') node.style.left = `${model.x + rebase / view.zoom}px`;
       const { locked } = access(model);
       node.classList.toggle('layer-locked', locked);
       node.classList.toggle('map-background', model.id === board.background);

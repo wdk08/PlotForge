@@ -12,6 +12,7 @@ const middle = (first, last) => ({ x: (first.x + last.x) / 2, y: (first.y + last
 const pan = value => clamp(value, -WORLD * 10, WORLD * 10);
 export function bindGestures(editor) {
   const canvas = $('plot-canvas');
+  const panX = value => clamp(value, -editor.horizontalLimit(), editor.horizontalLimit());
   const pointers = new Map();
   let gesture, space = false, lastTap, lastLinkClick, safariPinch;
   const position = event => {
@@ -120,8 +121,8 @@ export function bindGestures(editor) {
       if (pointers.size < 2 || current.distance < 1) return;
       const [first, last] = pointers.values();
       const target = middle(first, last);
-      const view = zoomAt(current.view, current.center.x, current.center.y, current.view.zoom * distance(first, last) / current.distance);
-      editor.setView({ ...view, x: pan(view.x + target.x - current.center.x), y: pan(view.y + target.y - current.center.y) }, false);
+      const view = zoomAt(current.view, current.center.x, current.center.y, current.view.zoom * distance(first, last) / current.distance, editor.horizontalLimit());
+      editor.setView({ ...view, x: panX(view.x + target.x - current.center.x), y: pan(view.y + target.y - current.center.y) }, false);
       return;
     }
     if (current.pointer !== event.pointerId) return;
@@ -131,7 +132,7 @@ export function bindGestures(editor) {
     const { mode, view, board } = current;
     if (mode === 'pan') {
       canvas.classList.add('panning');
-      editor.setView({ ...view, x: pan(view.x + dx), y: pan(view.y + dy) }, false);
+      editor.setView({ ...view, x: panX(view.x + dx), y: pan(view.y + dy) }, false);
     } else if (mode === 'move') {
       if (!current.moving.length) return;
       const snap = board.kind !== 'timeline' && editor.guidesEnabled() && !event.altKey ? snapMove(current.moving, current.others, dx / view.zoom, dy / view.zoom, view.zoom)
@@ -173,10 +174,10 @@ export function bindGestures(editor) {
     // Chromium delivers trackpad pinch as Ctrl+wheel.
     if (event.ctrlKey) {
       const { x, y } = position(event);
-      editor.setView(zoomAt(view, x, y, view.zoom * Math.exp(-clamp(dy, -300, 300) * .006)));
+      editor.setView(zoomAt(view, x, y, view.zoom * Math.exp(-clamp(dy, -300, 300) * .006), editor.horizontalLimit()));
     } else {
       const horizontal = event.shiftKey && editor.getBoard().kind === 'timeline' && !dx;
-      editor.setView({ ...view, x: pan(view.x - (horizontal ? dy : dx)), y: pan(view.y - (horizontal ? 0 : dy)) });
+      editor.setView({ ...view, x: panX(view.x - (horizontal ? dy : dx)), y: pan(view.y - (horizontal ? 0 : dy)) });
     }
   }, { passive: false });
   canvas.addEventListener('gesturestart', event => {
@@ -185,7 +186,7 @@ export function bindGestures(editor) {
   }, { passive: false });
   canvas.addEventListener('gesturechange', event => {
     event.preventDefault();
-    if (safariPinch) editor.setView(zoomAt(safariPinch.view, safariPinch.x, safariPinch.y, safariPinch.view.zoom * event.scale), false);
+    if (safariPinch) editor.setView(zoomAt(safariPinch.view, safariPinch.x, safariPinch.y, safariPinch.view.zoom * event.scale, editor.horizontalLimit()), false);
   }, { passive: false });
   canvas.addEventListener('gestureend', event => {
     event.preventDefault();

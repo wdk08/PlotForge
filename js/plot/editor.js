@@ -22,7 +22,7 @@ import { cleanHTML, pasteText } from './rich-text.js';
 import { bindPlanningPanels } from './panels.js';
 import { elementIndex, layerAccess, lockedSubtree, placeInStack, presentBoard, stackOpen } from './planning.js';
 import { stackAncestors, stackFamily, topSelected } from './stack-tree.js';
-import { TIMELINE_ORIGIN, timelineSettings } from './timeline.js';
+import { TIMELINE_ORIGIN, TIMELINE_PAN_LIMIT, timelineSettings } from './timeline.js';
 import { bindTimelineControls } from './timeline-controls.js';
 import { bindVariableSuggestions, resolveText } from './variables.js';
 
@@ -483,7 +483,7 @@ async function start() {
   const clearDraft = () => { draft = guides = marqueeRect = undefined; paint(); };
   const api = {
     selection, patch, patchLink, setSize, edit, endEditing, format, beginField, endField, editItem, moveItem, removeItem, getElement, navigate,
-    duplicate, delete: () => deleteSelection(), layer: moveLayer, paint, activate, getBoard: interactionBoard, getView, selectedIds, selectElement, selectLink, clearSelection,
+    duplicate, delete: () => deleteSelection(), layer: moveLayer, paint, activate, getBoard: interactionBoard, getView, horizontalLimit: () => getBoard().kind === 'timeline' ? TIMELINE_PAN_LIMIT : WORLD * 10, selectedIds, selectElement, selectLink, clearSelection,
     setView, persistView, canEdit, canMove, editConnection,
     movableSelection(ids) { return topSelected(getBoard().elements, new Set([...ids].filter(canMove))); }, guidesEnabled: () => project.settings.guides, isConnecting: () => Boolean(connecting), connectionClick, connectionHover, clearDraft,
     previewBoard(original, elements, nextGuides, mode, position) {
@@ -600,7 +600,7 @@ async function start() {
   function scaledView(ratio) {
     const view = getView(), focus = center().x;
     const origin = view.x + TIMELINE_ORIGIN * view.zoom;
-    return { ...view, x: Math.max(-WORLD * 10, Math.min(WORLD * 10, focus - (focus - origin) * ratio - TIMELINE_ORIGIN * view.zoom)) };
+    return { ...view, x: Math.max(-TIMELINE_PAN_LIMIT, Math.min(TIMELINE_PAN_LIMIT, focus - (focus - origin) * ratio - TIMELINE_ORIGIN * view.zoom)) };
   }
   function visibleEventView(source, key) {
     const board = source.boards[source.view.active];
@@ -646,7 +646,7 @@ async function start() {
   new ResizeObserver(() => paint()).observe(canvas);
   function zoom(factor, reset = false) {
     const pos = center(), view = getView();
-    setView(zoomAt(view, pos.x, pos.y, reset ? 1 : view.zoom * factor));
+    setView(zoomAt(view, pos.x, pos.y, reset ? 1 : view.zoom * factor, api.horizontalLimit()));
   }
   $('zoom-in').onclick = () => zoom(1.25);
   $('zoom-out').onclick = () => zoom(.8);
